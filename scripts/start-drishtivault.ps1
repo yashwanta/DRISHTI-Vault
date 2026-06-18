@@ -25,9 +25,16 @@ Write-Host "  Starting DRISHTI-Vault on $Url  (localhost only)" -ForegroundColor
 Write-Host "  Press Ctrl+C to stop." -ForegroundColor DarkGray
 Write-Host ""
 
-# Launch backend in a new window so logs are visible, and open the browser.
+# Launch backend in a new, titled window so logs are visible and the window is
+# easy to find in the taskbar. Run via cmd so the console keeps a custom title.
 Set-Location $ApiDir
-Start-Process -FilePath "python" -ArgumentList "-m","uvicorn","app.main:app","--host","127.0.0.1","--port","7788"
+$ServerTitle = "DVault-CC  -  DRISHTI-Vault server (127.0.0.1:7788)"
+Start-Process -FilePath "cmd.exe" `
+    -ArgumentList "/k title $ServerTitle & python -m uvicorn app.main:app --host 127.0.0.1 --port 7788" `
+    -WindowStyle Normal
+
+# Title this launcher window too.
+$Host.UI.RawUI.WindowTitle = "DVault-CC  -  DRISHTI-Vault launcher"
 
 Start-Sleep -Seconds 3
 Start-Process $Url
