@@ -48,14 +48,16 @@ def _enforce_auth_throttle(request: Request, conn):
 
 @router.post("/setup")
 def setup(body: SetupRequest, request: Request, response: Response):
-    """First-launch: create the master password & wrap a fresh DEK."""
+    """First-launch: create the master password & wrap a fresh DEK.
+
+    Setup is deliberately NOT throttled: there is no stored secret to brute
+    force on first launch (users table is empty), and sharing the login
+    throttle here would let failed-login attempts lock out setup entirely.
+    """
     conn = get_db()
-    _enforce_auth_throttle(request, conn)
     existing = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()
     if existing["c"] > 0:
-        auth_throttle.record_failure()
         raise HTTPException(409, "Vault already initialized.")
-    auth_throttle.record_success()
 
     pw = body.master_password
     salt = crypto.gen_salt(16)
@@ -81,6 +83,12 @@ def setup(body: SetupRequest, request: Request, response: Response):
 def login(body: LoginRequest, request: Request, response: Response):
     """Verify master password, unwrap DEK into a new in-memory session."""
     conn = get_db()
+    # If the vault isn't initialized yet, there is no user to authenticate
+    # against. Return a clear signal WITHOUT counting a throttle failure, so
+    # stray login attempts on an empty vault can't lock out the setup flow.
+    user_count = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+    if user_count == 0:
+        raise HTTPException(409, "Vault not initialized. Set a master password first.")
     _enforce_auth_throttle(request, conn)
     user = _user_row(conn, body.username)
     if user is None:
