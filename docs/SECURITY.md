@@ -1,17 +1,53 @@
 # Security Model
 
-DRISHTI-Vault is a **local-only, single-user** password vault. This document
-describes how secrets are protected. No cryptographic primitives are
-hand-rolled — only audited libraries (`argon2-cffi`, `cryptography`) are used.
+DRISHTI-Vault is a **local-only** password vault with **role-based access
+control**. This document describes how secrets are protected. No cryptographic
+primitives are hand-rolled — only audited libraries (`argon2-cffi`,
+`cryptography`) are used.
+
+## Roles & access (RBAC)
+
+| Role | Sees | Can reset passwords | Visibility |
+|------|------|--------------------|-----------:|
+| **Super Admin** (`Yash`, reserved) | Everything (all sites/creds) | Yes (all users) | Hidden from everyone except when Yash is logged in |
+| **Global Admin** | All sites/credentials | No | Listed |
+| **Location Admin** | Only credentials for sites assigned to them | No | Listed |
+
+- **First launch** creates only the Super Admin `Yash`. Yash then invites
+  Global/Location admins and assigns sites from **User Management**.
+- `Yash` is a **reserved identity**: it can never be deleted, renamed, or
+  demoted. Any attempt is rejected (403) and audit-logged.
+- **Super-admin invisibility:** `GET /api/users` omits `Yash` unless the
+  requester is Yash. Global/Location admins never learn the super admin exists.
+- **Location scoping** is enforced server-side on every read/mutation: list,
+  view, copy, create, edit, delete, dashboard counts, sites, network, and
+  change-log endpoints all filter to the viewer's allowed site set. An
+  out-of-scope credential returns **404, not 403** (no existence leak).
+- **Reset password** is super-admin only. The target user must change the new
+  temporary password at next login (`must_change_pw` flag).
+
+### Isolation model — IMPORTANT
+
+DRISHTI-Vault uses **policy-based isolation**: a single vault DEK encrypts all
+credentials, and the **server** decides who may decrypt which rows. This means:
+
+- A Global Admin, or a host compromise, can still decrypt everything. Access
+  control is a **policy enforced by the server**, not **zero-knowledge crypto
+  isolation**.
+- This is the right trade-off for a local IT vault (simpler, robust key
+  management, single encrypted backup). If you require cryptographic
+  per-location isolation, that is a different architecture (per-site DEKs).
 
 ## Threat model & scope
 
 - **In scope:** protecting secrets at rest on the local machine, enforcing
-  re-authentication before revealing them, and preventing accidental exposure
-  via logs, browser storage, or network exposure.
-- **Out of scope (explicit):** multi-user access, remote/network access,
-  protection against a fully-compromised host (malware with the user's
-  privileges can read RAM/keystrokes). Keep the host secure.
+  re-authentication before revealing them, role-based access control (RBAC),
+  and preventing accidental exposure via logs, browser storage, or network
+  exposure.
+- **Out of scope (explicit):** remote/network access; cryptographic per-site
+  isolation (isolation is policy-enforced, see above); protection against a
+  fully-compromised host (malware with the user's privileges can read
+  RAM/keystrokes). Keep the host secure.
 
 ## Master password
 

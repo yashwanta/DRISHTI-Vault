@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from .. import rbac
 from ..audit import log
 from ..db import db_cursor, get_db, now_iso
 from ..deps import client_ip, get_session
@@ -28,12 +29,15 @@ def _row(r):
 @router.get("/sites")
 def list_sites(session=Depends(get_session)):
     conn = get_db()
+    _, allowed = rbac.viewer_scope(conn, session)
+    clause, args = rbac.scope_sql(allowed, "s.id")
     out = []
     for r in conn.execute(
-        "SELECT s.*, "
-        "(SELECT COUNT(*) FROM assets a WHERE a.site_id=s.id) AS vm_count, "
-        "(SELECT COUNT(*) FROM credentials c WHERE c.site_id=s.id) AS cred_count "
-        "FROM sites s ORDER BY s.name"
+        f"SELECT s.*, "
+        f"(SELECT COUNT(*) FROM assets a WHERE a.site_id=s.id) AS vm_count, "
+        f"(SELECT COUNT(*) FROM credentials c WHERE c.site_id=s.id) AS cred_count "
+        f"FROM sites s WHERE {clause} ORDER BY s.name",
+        args,
     ):
         d = _row(r)
         d["vm_count"] = r["vm_count"]
@@ -44,6 +48,10 @@ def list_sites(session=Depends(get_session)):
 
 @router.post("/sites")
 def create_site(body: SiteIn, request: Request, session=Depends(get_session)):
+    conn = get_db()
+    _, allowed = rbac.viewer_scope(conn, session)
+    if allowed is not None:
+        raise HTTPException(403, "Only admins may create sites.")
     with db_cursor() as cur:
         try:
             cur.execute(
@@ -64,6 +72,10 @@ def create_site(body: SiteIn, request: Request, session=Depends(get_session)):
 @router.put("/sites/{site_id}")
 def update_site(site_id: int, body: SiteIn, request: Request,
                 session=Depends(get_session)):
+    conn = get_db()
+    _, allowed = rbac.viewer_scope(conn, session)
+    if allowed is not None:
+        raise HTTPException(403, "Only admins may edit sites.")
     with db_cursor() as cur:
         cur.execute("SELECT 1 FROM sites WHERE id=?", (site_id,))
         if cur.fetchone() is None:
@@ -83,14 +95,19 @@ def update_site(site_id: int, body: SiteIn, request: Request,
 @router.get("/sites/{site_id}")
 def get_site(site_id: int, session=Depends(get_session)):
     conn = get_db()
+    _, allowed = rbac.viewer_scope(conn, session)
     r = conn.execute("SELECT * FROM sites WHERE id=?", (site_id,)).fetchone()
-    if r is None:
+    if r is None or not rbac.can_access(allowed, r["id"]):
         raise HTTPException(404, "Site not found")
     return _row(r)
 
 
 @router.delete("/sites/{site_id}")
 def delete_site(site_id: int, request: Request, session=Depends(get_session)):
+    conn = get_db()
+    _, allowed = rbac.viewer_scope(conn, session)
+    if allowed is not None:
+        raise HTTPException(403, "Only admins may delete sites.")
     with db_cursor() as cur:
         cur.execute("SELECT name FROM sites WHERE id=?", (site_id,))
         row = cur.fetchone()

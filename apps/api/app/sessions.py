@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 class Session:
     sid: str
     username: str
+    user_id: int               # users.id for the authenticated user
+    role: str                  # super_admin | global_admin | location_admin
     dek: bytes                 # data-encrypting key; wiped on lock
     created_at: float
     last_seen: float
@@ -30,11 +32,12 @@ class SessionStore:
         self._sessions: dict[str, Session] = {}
         self._lock = threading.Lock()
 
-    def create(self, username: str, dek: bytes) -> str:
+    def create(self, username: str, user_id: int, role: str, dek: bytes) -> str:
         sid = secrets.token_urlsafe(32)
         now = time.time()
         with self._lock:
-            self._sessions[sid] = Session(sid, username, dek, now, now)
+            self._sessions[sid] = Session(sid, username, user_id, role, dek,
+                                          now, now)
         return sid
 
     def get(self, sid: str | None) -> Session | None:
