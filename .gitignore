@@ -55,6 +55,9 @@ desktop.ini
 *.swp
 *.swo
 
+# Local launchers / shortcuts — never commit (machine-specific paths)
+*.lnk
+
 # Temp / scratch
 *.tmp
 *.bak
