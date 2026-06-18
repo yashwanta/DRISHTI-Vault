@@ -1,0 +1,25 @@
+# Build-context ignore for DRISHTI-Vault container image
+# (Podman uses .containerignore; .dockerignore is supported too)
+
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.venv
+**/venv
+data/*
+!data/.gitkeep
+backups/encrypted/*
+!backups/encrypted/.gitkeep
+logs/*
+!logs/.gitkeep
+.git
+.gitignore
+*.tsbuildinfo
+rename_to_drishti.py
+npm-debug.log*
+# don't ship local env (secrets must never live here)
+.env
+.env.*
+!.env.example
