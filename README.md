@@ -10,6 +10,9 @@ notes.
 > ⚠ **Local vault only. Do not expose to network.** DRISHTI-Vault binds to
 > `127.0.0.1:7788` only. It is not designed for remote or multi-user access.
 
+> 📖 **[docs/PROJECT_WIKI.md](docs/PROJECT_WIKI.md)** — full project reference:
+> architecture, security model, data model, import flows (Excel + CSV), RBAC, and dev workflow.
+
 ---
 
 ## Quick start
