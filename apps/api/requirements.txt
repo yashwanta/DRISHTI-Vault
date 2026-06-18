@@ -1,0 +1,11 @@
+# DRISHTI-Vault backend dependencies — proven cryptography libraries only
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+# Secure password hashing / key verification
+argon2-cffi==23.1.0
+# Proven authenticated encryption (AES-256-GCM) — never custom crypto
+cryptography==44.0.0
+# Excel import (read-only)
+openpyxl==3.1.5
+# Lightweight env + multipart for file uploads (backup restore, excel import)
+python-multipart==0.0.20

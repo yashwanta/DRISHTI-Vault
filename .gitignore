@@ -1,0 +1,61 @@
+# ===== DRISHTI-Vault — NEVER commit secrets, keys, databases, backups, or logs =====
+
+# Databases
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# Backups (encrypted or otherwise)
+backups/**/*.bak
+backups/**/*.enc
+backups/**/*.json
+backups/encrypted/*
+!backups/encrypted/.gitkeep
+
+# Logs
+logs/*.log
+logs/*.txt
+
+# Master-password verifier / key material / salts (if ever written to disk)
+*.key
+*.salt
+*.kek
+secrets/
+
+# Environment files — MUST NOT contain secrets
+.env
+.env.*
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Node / Vite / TS
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.vite/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temp / scratch
+*.tmp
+*.bak
+NUL

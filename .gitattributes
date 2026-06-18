@@ -1,0 +1,12 @@
+# Normalize text files to LF in the repo; Git will check out CRLF on Windows.
+* text=auto eol=lf
+
+# Explicitly binary — never normalize
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.xlsx binary
+*.db binary
+*.drishtivaultbackup binary
