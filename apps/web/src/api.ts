@@ -172,7 +172,33 @@ export const api = {
     req<{ last_export: string | null; last_restore: string | null;
          restore_lockout_active: boolean; restore_lockout_seconds: number }>(
       "/api/backup/last"),
+
+  // ---- CSV templates / bulk import ----
+  csvTables: () =>
+    req<{ tables: any[] }>("/api/csv/tables"),
+  csvPreview: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return req<any>("/api/csv/preview", { method: "POST", body: fd });
+  },
+  csvCommit: (file: File, table: string) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("table", table);
+    return req<any>("/api/csv/commit", { method: "POST", body: fd });
+  },
 };
+
+// Download a CSV template (blob fetch; generic req() returns JSON).
+export async function downloadCsvTemplate(table: string): Promise<Blob> {
+  const res = await fetch(`/api/csv/template/${table}`, { credentials: "include" });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try { detail = (await res.json()).detail || detail; } catch {}
+    throw new Error(detail);
+  }
+  return res.blob();
+}
 
 // Specialized blob fetch for backup download (the generic req() returns JSON).
 export async function downloadBackup(

@@ -341,8 +341,9 @@ print("\n-- RBAC --")
 # sites present (seeded Springfield/Hopkinsville); pick their ids
 sites = c.get("/api/sites").json()["items"]
 check("seeded sites present for RBAC", len(sites) >= 2)
-spr_id = sites[0]["id"]
-hop_id = sites[1]["id"]
+# resolve sites BY NAME (the API returns them ORDER BY name, so index is unreliable)
+spr_id = next(s["id"] for s in sites if s["name"] == "Springfield")
+hop_id = next(s["id"] for s in sites if s["name"] == "Hopkinsville")
 
 # Yash cannot be seen in /users by non-Yash; but Yash himself sees Yash
 me = c.get("/api/me").json()
@@ -442,6 +443,93 @@ check("cannot demote Yash",
 
 # location admin cannot even list users (admin-only endpoint)
 check("location admin cannot manage users", l.get("/api/users").status_code == 403)
+
+# ===========================================================================
+# CSV templates + bulk import (download → fill → upload with passwords)
+# ===========================================================================
+print("\n-- CSV --")
+# template download for each table
+tables = c.get("/api/csv/tables").json()["tables"]
+check("csv tables advertised", {t["table"] for t in tables} ==
+      {"credentials", "sites", "assets", "network", "changelog"})
+
+for t in ("credentials", "sites", "assets", "network", "changelog"):
+    r = c.get(f"/api/csv/template/{t}")
+    check(f"csv template {t} downloads", r.status_code == 200 and "text/csv" in r.headers.get("content-type", ""))
+    # dummy sample rows must never contain a real secret value
+    body = r.text
+    check(f"csv template {t} marks secrets CHANGE_ME",
+          ("CHANGE_ME" not in body) if t in ("sites", "network", "changelog")
+          else ("CHANGE_ME" in body))
+
+# --- build a credentials CSV with a real password, upload, commit, verify ---
+cred_csv = (
+    "title,site_name,asset_name,cred_type,username,password,url_host,port,rotation_due,status,notes\n"
+    "CSV-PVE,Springfield,,Proxmox Login,root@pam,csv-secret-123,https://pve.local:8006,8006,,Active,from csv\n"
+    "CSV-HOP,Hopkinsville,,Linux SSH,ubuntu,csv-hop-secret,,,,Active,\n"
+    "BadCred,,,BogusType,u,p,,,,Active,\n"   # invalid cred_type -> 1 invalid row
+)
+r = c.post("/api/csv/preview", files={"file": ("c.csv", io.BytesIO(cred_csv.encode()),
+                                              "text/csv")})
+p = r.json()
+check("csv preview detects table", p["table"] == "credentials")
+check("csv preview counts", p["counts"]["total"] == 3 and p["counts"]["valid"] == 2
+      and p["counts"]["invalid"] == 1)
+# secret values must NOT be echoed in the preview response
+check("csv preview hides secret values", "csv-secret-123" not in json.dumps(p))
+check("csv preview marks has_secrets", any(row["has_secrets"] for row in p["rows"]))
+
+# commit the ORIGINAL file (secrets never round-trip masked); server re-parses
+r = c.post("/api/csv/commit",
+           files={"file": ("c.csv", io.BytesIO(cred_csv.encode()), "text/csv")},
+           data={"table": "credentials"})
+commit = r.json()
+check("csv commit inserts valid rows", commit["inserted"] == 2 and commit["skipped"] == 0)
+
+# verify the password was ENCRYPTED at rest (not plaintext) and decrypts via reveal
+allc = c.get("/api/credentials").json()["items"]
+csv_pve = next(x for x in allc if x["title"] == "CSV-PVE")
+c.post("/api/reveal", json={"master_password": MASTER})
+v = c.get(f"/api/credentials/{csv_pve['id']}/view").json()
+check("csv-imported password decrypts", v["password"] == "csv-secret-123"
+      and v["username"] == "root@pam")
+# confirm ciphertext (not plaintext) is what's stored
+import sqlite3 as _sq
+_dbrow = _sq.connect(str(config.DB_PATH)).execute(
+    "SELECT password_enc FROM credentials WHERE id=?", (csv_pve["id"],)).fetchone()
+check("csv password stored encrypted (not plaintext)",
+      _dbrow and "csv-secret-123" not in (_dbrow[0] or ""))
+
+# --- RBAC scoping: location admin imports only their site ---
+spr_csv = (
+    "title,site_name,cred_type,username,password,port,status,notes\n"
+    "CSV-LOC-OK,Springfield,Linux SSH,u,spr-ok,22,Active,\n"
+    "CSV-LOC-BAD,Hopkinsville,Linux SSH,u,hop-bad,22,Active,\n"
+)
+rp = l.post("/api/csv/preview", files={"file": ("c.csv", io.BytesIO(spr_csv.encode()),
+                                                "text/csv")}).json()
+ok_rows = [row["data"] for row in rp["rows"] if row["ok"]]
+rc = l.post("/api/csv/commit",
+            files={"file": ("c.csv", io.BytesIO(spr_csv.encode()), "text/csv")},
+            data={"table": "credentials"}).json()
+check("csv location admin inserts only scoped rows", rc["inserted"] == 1
+      and rc["skipped"] == 1)
+# the out-of-scope HOP credential must NOT exist for the location admin
+ltitles = {x["title"] for x in l.get("/api/credentials").json()["items"]}
+check("csv out-of-scope row not visible to location admin",
+      "CSV-LOC-OK" in ltitles and "CSV-LOC-BAD" not in ltitles)
+
+# --- sites template round-trip (no secret columns) ---
+sites_csv = c.get("/api/csv/template/sites").text
+rp = c.post("/api/csv/preview", files={"file": ("s.csv", io.BytesIO(sites_csv.encode()),
+                                                "text/csv")}).json()
+check("csv sites template has no secret columns", rp["secret_columns"] == [])
+
+# audit logged the csv imports (metadata only)
+aud = c.get("/api/audit?limit=200").json()["items"]
+check("csv import audited", any(a["action"] == "csv.import" for a in aud))
+check("audit never contains csv secrets",
+      "csv-secret-123" not in json.dumps(aud) and "csv-hop-secret" not in json.dumps(aud))
 
 # ======================= excel import =======================
 # Resolve relative to the project root so the test works in any location.

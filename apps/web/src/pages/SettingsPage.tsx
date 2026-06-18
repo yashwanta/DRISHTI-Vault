@@ -1,5 +1,5 @@
 import React from "react";
-import { api, downloadBackup } from "../api";
+import { api, downloadBackup, downloadCsvTemplate } from "../api";
 import { ConfirmDialog, Empty, Modal, useToast } from "../components/ui";
 import { MultiPasswordPrompt } from "../components/MultiPasswordPrompt";
 
@@ -13,6 +13,8 @@ type DialogState =
 const BACKUP_MIN = 10;
 const MASTER_MIN = 10;
 
+const CSV_TABLES = ["credentials", "sites", "assets", "network", "changelog"];
+
 export function SettingsPage() {
   const [settings, setSettings] = React.useState<any>(null);
   const [dialog, setDialog] = React.useState<DialogState>({ kind: "none" });
@@ -21,7 +23,48 @@ export function SettingsPage() {
   const [history, setHistory] = React.useState<any[]>([]);
   const [lastInfo, setLastInfo] = React.useState<any>(null);
   const [restoreFile, setRestoreFile] = React.useState<File | null>(null);
+  // CSV import state
+  const [csvFile, setCsvFile] = React.useState<File | null>(null);
+  const [csvPreview, setCsvPreview] = React.useState<any | null>(null);
   const { show, node } = useToast();
+
+  // ---- CSV handlers ----
+  const downloadTemplate = async (table: string) => {
+    try {
+      const blob = await downloadCsvTemplate(table);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `drishtivault-${table}-template.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      show(`Downloaded ${table} template`);
+    } catch (e: any) { show("Download failed: " + e.message); }
+  };
+
+  const onPickCsv = async (file: File | undefined) => {
+    if (!file) return;
+    setCsvFile(file);
+    setBusy(true);
+    try {
+      const p = await api.csvPreview(file);
+      setCsvPreview(p);
+    } catch (e: any) { show("CSV preview failed: " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  const commitCsv = async () => {
+    if (!csvFile || !csvPreview) return;
+    setBusy(true);
+    try {
+      const res: any = await api.csvCommit(csvFile, csvPreview.table);
+      show(`Imported ${res.inserted} row(s) into ${csvPreview.table}`
+           + (res.skipped ? ` (${res.skipped} skipped)` : ""));
+      setCsvPreview(null);
+      setCsvFile(null);
+    } catch (e: any) { show("CSV import failed: " + e.message); }
+    finally { setBusy(false); }
+  };
 
   const refreshStatus = React.useCallback(() => {
     api.backupLast().then(setLastInfo).catch(() => {});
@@ -231,7 +274,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Import from Excel</h3>
           <p className="subtle">
@@ -243,6 +286,34 @@ export function SettingsPage() {
             type="file"
             accept=".xlsx"
             onChange={(e) => onPickImport(e.target.files?.[0])}
+            disabled={busy}
+          />
+        </div>
+
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>Import from CSV (with passwords)</h3>
+          <p className="subtle">
+            Download a template, fill it in, and upload. Secret columns
+            (passwords, keys) are <strong>encrypted on import</strong>. Preview
+            is a dry run — nothing is written until you confirm.
+          </p>
+          <label className="subtle" style={{ display: "block", marginBottom: 4 }}>
+            Download template
+          </label>
+          <div className="btn-row" style={{ marginBottom: 10, flexWrap: "wrap" }}>
+            {CSV_TABLES.map((t) => (
+              <button key={t} className="btn btn-sm" onClick={() => downloadTemplate(t)}>
+                {t}
+              </button>
+            ))}
+          </div>
+          <label className="subtle" style={{ display: "block", marginBottom: 4 }}>
+            Upload filled CSV
+          </label>
+          <input
+            type="file"
+            accept=".csv"
+            onChange={(e) => onPickCsv(e.target.files?.[0])}
             disabled={busy}
           />
         </div>
@@ -270,6 +341,59 @@ export function SettingsPage() {
       </div>
 
       {/* ===== Modals ===== */}
+
+      {/* CSV import preview */}
+      {csvPreview && (
+        <Modal title={`CSV Preview — ${csvPreview.table}`} onClose={() => { setCsvPreview(null); setCsvFile(null); }} wide>
+          <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <Stat label="Total rows" n={csvPreview.counts.total} />
+            <Stat label="Valid" n={csvPreview.counts.valid} />
+            <Stat label="Invalid" n={csvPreview.counts.invalid} />
+          </div>
+          {csvPreview.secret_columns?.length > 0 && (
+            <div className="banner" style={{ marginTop: 12 }}>
+              🔐 Secret columns <strong>{csvPreview.secret_columns.join(", ")}</strong> will be
+              encrypted on import. They are masked in this preview.
+            </div>
+          )}
+          <div style={{ maxHeight: 280, overflow: "auto", marginTop: 12 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Status</th>
+                  {csvPreview.header.map((h: string) => <th key={h}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {csvPreview.rows.map((r: any) => (
+                  <tr key={r.row}>
+                    <td className="muted">{r.row}</td>
+                    <td>
+                      {r.ok
+                        ? <span style={{ color: "var(--success)" }}>ok</span>
+                        : <span style={{ color: "var(--danger)" }} title={r.errors.join("; ")}>✗</span>}
+                    </td>
+                    {csvPreview.header.map((h: string) => (
+                      <td key={h} className="muted">{r.data[h] ?? ""}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="subtle" style={{ marginTop: 10 }}>
+            {csvPreview.counts.invalid > 0 && `${csvPreview.counts.invalid} invalid row(s) will be skipped. `}
+            Only valid rows are imported.
+          </div>
+          <div className="btn-row" style={{ justifyContent: "flex-end", marginTop: 18 }}>
+            <button className="btn" onClick={() => { setCsvPreview(null); setCsvFile(null); }}>Cancel</button>
+            <button className="btn btn-primary" disabled={busy || csvPreview.counts.valid === 0} onClick={commitCsv}>
+              {busy ? "Importing…" : `Import ${csvPreview.counts.valid} row(s)`}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {/* Excel import preview */}
       {importPreview && (
