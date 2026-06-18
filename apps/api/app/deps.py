@@ -43,6 +43,55 @@ def client_ip(request: Request) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Role helpers / dependencies
+# ---------------------------------------------------------------------------
+
+def current_user_row(session=Depends(get_session)):
+    """Return the users row for the session (or None)."""
+    conn = get_db()
+    return conn.execute(
+        "SELECT * FROM users WHERE id=?", (session.user_id,)
+    ).fetchone()
+
+
+def require_admin(request: Request, session=Depends(get_session)):
+    """super_admin OR global_admin (can manage users, but only super resets pw)."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM users WHERE id=?", (session.user_id,)
+    ).fetchone()
+    if row is None or row["role"] not in ("super_admin", "global_admin"):
+        log_audit(request, session, "auth.forbidden",
+                  detail=f"role={row['role'] if row else 'none'}")
+        raise HTTPException(status_code=403, detail="Admin role required.")
+    return row
+
+
+def require_super_admin(request: Request, session=Depends(get_session)):
+    """super_admin only (the reserved Yash identity)."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM users WHERE id=?", (session.user_id,)
+    ).fetchone()
+    if row is None or row["role"] != "super_admin":
+        log_audit(request, session, "auth.forbidden",
+                  detail="super-admin required")
+        raise HTTPException(status_code=403,
+                            detail="Super-admin role required.")
+    return row
+
+
+def log_audit(request: Request, session, action: str, detail: str | None = None,
+              target_type: str | None = None, target_id: int | None = None):
+    """Convenience audit wrapper for deps-layer rejections."""
+    from .audit import log as _log
+    conn = get_db()
+    _log(conn, action, actor=getattr(session, "username", None),
+         target_type=target_type, target_id=target_id, detail=detail,
+         source_ip=client_ip(request))
+
+
+# ---------------------------------------------------------------------------
 # Master-password re-authentication
 #
 # Required for: reveal/copy (via the reveal window), export, restore, and

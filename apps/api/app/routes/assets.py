@@ -8,7 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from .. import crypto
+from .. import crypto, rbac
 from ..audit import log
 from ..db import db_cursor, get_db, now_iso
 from ..deps import client_ip, get_session
@@ -61,10 +61,14 @@ def _row_meta(r):
 @router.get("/assets")
 def list_assets(session=Depends(get_session)):
     conn = get_db()
+    _, allowed = rbac.viewer_scope(conn, session)
+    clause, args = rbac.scope_sql(allowed, "a.site_id")
     out = []
     for r in conn.execute(
-        "SELECT a.*, s.name AS site_name FROM assets a "
-        "LEFT JOIN sites s ON s.id=a.site_id ORDER BY a.app_vm_name"
+        f"SELECT a.*, s.name AS site_name FROM assets a "
+        f"LEFT JOIN sites s ON s.id=a.site_id WHERE {clause} "
+        f"ORDER BY a.app_vm_name",
+        args,
     ):
         d = _row_meta(r)
         d["site_name"] = r["site_name"]
@@ -75,11 +79,12 @@ def list_assets(session=Depends(get_session)):
 @router.get("/assets/{asset_id}")
 def get_asset(asset_id: int, request: Request, session=Depends(get_session)):
     conn = get_db()
+    _, allowed = rbac.viewer_scope(conn, session)
     r = conn.execute(
         "SELECT a.*, s.name AS site_name FROM assets a "
         "LEFT JOIN sites s ON s.id=a.site_id WHERE a.id=?", (asset_id,)
     ).fetchone()
-    if r is None:
+    if r is None or not rbac.can_access(allowed, r["site_id"]):
         raise HTTPException(404, "Asset not found")
     d = _row_meta(r)
     d["site_name"] = r["site_name"]
@@ -92,6 +97,10 @@ def get_asset(asset_id: int, request: Request, session=Depends(get_session)):
 def create_asset(body: AssetIn, request: Request, session=Depends(get_session)):
     if body.asset_type not in ASSET_TYPES:
         raise HTTPException(400, "Invalid asset type")
+    conn = get_db()
+    _, allowed = rbac.viewer_scope(conn, session)
+    if not rbac.can_access(allowed, body.site_id):
+        raise HTTPException(403, "You cannot create assets for that site.")
     with db_cursor() as cur:
         cur.execute(
             "INSERT INTO assets(site_id, app_vm_name, asset_type, vm_id, hostname, "
@@ -114,10 +123,15 @@ def update_asset(asset_id: int, body: AssetIn, request: Request,
                  session=Depends(get_session)):
     if body.asset_type not in ASSET_TYPES:
         raise HTTPException(400, "Invalid asset type")
+    conn = get_db()
+    _, allowed = rbac.viewer_scope(conn, session)
     with db_cursor() as cur:
-        cur.execute("SELECT 1 FROM assets WHERE id=?", (asset_id,))
-        if cur.fetchone() is None:
+        r = cur.execute("SELECT site_id FROM assets WHERE id=?",
+                        (asset_id,)).fetchone()
+        if r is None or not rbac.can_access(allowed, r["site_id"]):
             raise HTTPException(404, "Asset not found")
+        if not rbac.can_access(allowed, body.site_id):
+            raise HTTPException(403, "You cannot move an asset to that site.")
         cur.execute(
             "UPDATE assets SET site_id=?, app_vm_name=?, asset_type=?, vm_id=?, "
             "hostname=?, ip_address=?, web_url_enc=?, environment=?, os_info=?, "
@@ -135,13 +149,15 @@ def update_asset(asset_id: int, body: AssetIn, request: Request,
 
 @router.delete("/assets/{asset_id}")
 def delete_asset(asset_id: int, request: Request, session=Depends(get_session)):
+    conn = get_db()
+    _, allowed = rbac.viewer_scope(conn, session)
     with db_cursor() as cur:
-        cur.execute("SELECT app_vm_name FROM assets WHERE id=?", (asset_id,))
-        row = cur.fetchone()
-        if row is None:
+        r = cur.execute("SELECT app_vm_name, site_id FROM assets WHERE id=?",
+                        (asset_id,)).fetchone()
+        if r is None or not rbac.can_access(allowed, r["site_id"]):
             raise HTTPException(404, "Asset not found")
         cur.execute("DELETE FROM assets WHERE id=?", (asset_id,))
         log(cur.connection, "asset.delete", actor=session.username,
-            target_type="asset", target_id=asset_id, detail=row["app_vm_name"],
+            target_type="asset", target_id=asset_id, detail=r["app_vm_name"],
             source_ip=client_ip(request))
     return {"ok": True}

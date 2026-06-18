@@ -11,7 +11,7 @@ from typing import Iterator
 
 from . import config
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -21,7 +21,12 @@ CREATE TABLE IF NOT EXISTS users (
     kdf_salt        BLOB NOT NULL,            -- salt for KEK derivation (NOT the verifier salt)
     wrapped_dek     BLOB NOT NULL,            -- AES-256-GCM(KEK, DEK)
     created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
+    updated_at      TEXT NOT NULL,
+    -- RBAC (schema v3):
+    role            TEXT NOT NULL DEFAULT 'global_admin',  -- super_admin | global_admin | location_admin
+    full_name       TEXT,
+    active          INTEGER NOT NULL DEFAULT 1,
+    must_change_pw  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS sites (
@@ -34,6 +39,15 @@ CREATE TABLE IF NOT EXISTS sites (
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL,
     UNIQUE(name)
+);
+
+-- RBAC: which sites a location_admin may see (schema v3)
+CREATE TABLE IF NOT EXISTS user_sites (
+    user_id         INTEGER NOT NULL,
+    site_id         INTEGER NOT NULL,
+    PRIMARY KEY (user_id, site_id),
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS assets (
@@ -198,18 +212,25 @@ _MIGRATIONS = [
 ]
 
 
+def _add_column(conn, table: str, column: str, decl: str) -> None:
+    """Add a column if it does not already exist (idempotent ALTER)."""
+    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """Apply incremental migrations for pre-existing databases.
 
     Tables created with CREATE TABLE IF NOT EXISTS in SCHEMA are added
-    automatically, but we still bump the schema_version row and can run
-    targeted ALTERs here when a column changes.
+    automatically; new columns on existing tables need explicit ALTERs here.
     """
-    row = conn.execute(
-        "SELECT value FROM vault_settings WHERE key='schema_version'"
-    ).fetchone()
-    current = row[0] if row else "1"
-    # All structural additions in v2 are handled by IF NOT EXISTS; just record it.
+    # v3: RBAC columns on users (idempotent — safe on fresh DBs too)
+    _add_column(conn, "users", "role", "TEXT NOT NULL DEFAULT 'global_admin'")
+    _add_column(conn, "users", "full_name", "TEXT")
+    _add_column(conn, "users", "active", "INTEGER NOT NULL DEFAULT 1")
+    _add_column(conn, "users", "must_change_pw", "INTEGER NOT NULL DEFAULT 0")
+    # user_sites table is created by CREATE TABLE IF NOT EXISTS in SCHEMA.
     conn.execute(
         "INSERT INTO vault_settings(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

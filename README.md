@@ -36,7 +36,20 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 powershell -ExecutionPolicy Bypass -File scripts\start-drishtivault.ps1
 ```
 
-Then open **http://127.0.0.1:7788** and create your master password.
+Then open **http://127.0.0.1:7788** and create the **Super Admin (Yash)** master
+password. Yash then invites other admins from **User Management**.
+
+## Roles (RBAC)
+
+| Role | Sees | Reset passwords | Notes |
+|------|------|-----------------|-------|
+| **Super Admin** (`Yash`) | Everything | Yes | Reserved identity, created first, hidden from everyone else, cannot be removed/demoted |
+| **Global Admin** | All sites/credentials | No | Created by Yash |
+| **Location Admin** | Only assigned sites' credentials | No | Sites assigned by an admin |
+
+Access is enforced server-side on every endpoint; out-of-scope rows return 404
+(no existence leak). Isolation is **policy-based** (one shared DEK; the server
+controls who decrypts what) — see [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Features
 

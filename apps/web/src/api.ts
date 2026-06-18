@@ -40,16 +40,37 @@ export const api = {
   me: () => req<any>("/api/me"),
 
   setup: (username: string, master_password: string) =>
-    req("/api/setup", {
+    req<any>("/api/setup", {
       method: "POST",
       body: JSON.stringify({ username, master_password }),
     }),
   login: (username: string, master_password: string) =>
-    req("/api/login", {
+    req<any>("/api/login", {
       method: "POST",
       body: JSON.stringify({ username, master_password }),
     }),
   lock: () => req("/api/lock", { method: "POST" }),
+  changeMasterPassword: (current_master_password: string,
+                         new_master_password: string) =>
+    req<any>("/api/change-master-password", {
+      method: "POST",
+      body: JSON.stringify({ current_master_password, new_master_password }),
+    }),
+
+  // ---- User Management (admin) ----
+  listUsers: () => req<{ items: any[]; roles: string[]; can_reset_password: boolean }>("/api/users"),
+  createUser: (body: any) =>
+    req("/api/users", { method: "POST", body: JSON.stringify(body) }),
+  updateUser: (id: number, body: any) =>
+    req(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  assignSites: (id: number, site_ids: number[]) =>
+    req(`/api/users/${id}/sites`, { method: "POST", body: JSON.stringify({ site_ids }) }),
+  deactivateUser: (id: number) =>
+    req(`/api/users/${id}`, { method: "DELETE" }),
+  resetUserPassword: (id: number, new_password: string) =>
+    req(`/api/users/${id}/reset-password`, {
+      method: "POST", body: JSON.stringify({ new_password }),
+    }),
   openReveal: (master_password: string) =>
     req("/api/reveal", {
       method: "POST",
@@ -151,12 +172,6 @@ export const api = {
     req<{ last_export: string | null; last_restore: string | null;
          restore_lockout_active: boolean; restore_lockout_seconds: number }>(
       "/api/backup/last"),
-  changeMasterPassword: (current_master_password: string,
-                         new_master_password: string) =>
-    req<any>("/api/change-master-password", {
-      method: "POST",
-      body: JSON.stringify({ current_master_password, new_master_password }),
-    }),
 };
 
 // Specialized blob fetch for backup download (the generic req() returns JSON).

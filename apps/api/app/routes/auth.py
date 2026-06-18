@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from .. import config, crypto
+from .. import rbac
 from ..audit import log
 from ..db import get_db, now_iso
 from ..deps import auth_throttle, client_ip, db, get_session
@@ -48,16 +49,24 @@ def _enforce_auth_throttle(request: Request, conn):
 
 @router.post("/setup")
 def setup(body: SetupRequest, request: Request, response: Response):
-    """First-launch: create the master password & wrap a fresh DEK.
+    """First-launch: create the SUPER ADMIN (the reserved `Yash` identity).
+
+    The very first user created MUST be the reserved super-admin identity.
+    It can never be deleted/renamed/demoted. After this, Yash invites other
+    admins (global/location) via the User Management page.
 
     Setup is deliberately NOT throttled: there is no stored secret to brute
-    force on first launch (users table is empty), and sharing the login
-    throttle here would let failed-login attempts lock out setup entirely.
+    force on first launch (users table is empty).
     """
     conn = get_db()
     existing = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()
     if existing["c"] > 0:
         raise HTTPException(409, "Vault already initialized.")
+
+    if not rbac.is_reserved_username(body.username):
+        raise HTTPException(
+            400, "The first account must be the super admin 'Yash'. "
+                 "Other users are created from User Management after login.")
 
     pw = body.master_password
     salt = crypto.gen_salt(16)
@@ -70,13 +79,15 @@ def setup(body: SetupRequest, request: Request, response: Response):
 
     conn.execute(
         "INSERT INTO users(username, verifier, kdf_salt, wrapped_dek, "
-        "created_at, updated_at) VALUES (?,?,?,?,?,?)",
-        (body.username, verifier, salt, wrapped, now_iso(), now_iso()),
+        "role, full_name, active, must_change_pw, created_at, updated_at) "
+        "VALUES (?,?,?,?,?, 'Yash (Super Admin)', 1, 0, ?, ?)",
+        (body.username.strip(), verifier, salt, wrapped,
+         rbac.SUPER_ADMIN_ROLE, now_iso(), now_iso()),
     )
     conn.commit()
     log(conn, "auth.setup", actor=body.username, source_ip=client_ip(request),
-        detail="master password set")
-    return {"initialized": True}
+        detail="super-admin created")
+    return {"initialized": True, "role": rbac.SUPER_ADMIN_ROLE}
 
 
 @router.post("/login")
@@ -96,6 +107,12 @@ def login(body: LoginRequest, request: Request, response: Response):
         log(conn, "auth.login_failed", detail=f"unknown user={body.username!r}",
             source_ip=client_ip(request))
         raise HTTPException(401, "Invalid credentials.")
+
+    if not user["active"]:
+        auth_throttle.record_failure()
+        log(conn, "auth.login_failed", actor=body.username, detail="inactive",
+            source_ip=client_ip(request))
+        raise HTTPException(403, "This account has been deactivated.")
 
     ok = crypto.verify_master_password(user["verifier"], body.master_password)
     if not ok:
@@ -123,14 +140,16 @@ def login(body: LoginRequest, request: Request, response: Response):
     _zero(kek)
     auth_throttle.record_success()
 
-    sid = sessions.create(body.username, dek)
+    sid = sessions.create(body.username, user["id"], user["role"], dek)
     response.set_cookie(
         key=config.SESSION_COOKIE, value=sid,
         httponly=True, secure=False, samesite="strict",  # localhost http
         path="/",
     )
-    log(conn, "auth.login", actor=body.username, source_ip=client_ip(request))
-    return {"ok": True, "username": body.username,
+    log(conn, "auth.login", actor=body.username, source_ip=client_ip(request),
+        detail=f"role={user['role']}")
+    return {"ok": True, "username": body.username, "role": user["role"],
+            "must_change_pw": bool(user["must_change_pw"]),
             "idle_lock_minutes": config.IDLE_LOCK_MINUTES,
             "clipboard_ttl": config.CLIPBOARD_TTL,
             "reveal_ttl": config.REVEAL_TTL}
@@ -173,7 +192,15 @@ def open_reveal(body: RevealRequest, request: Request, session=Depends(get_sessi
 
 @router.get("/me")
 def me(session=Depends(get_session)):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT role, full_name, must_change_pw FROM users WHERE id=?",
+        (session.user_id,)
+    ).fetchone()
     return {"username": session.username,
+            "role": session.role if row else "global_admin",
+            "full_name": row["full_name"] if row else None,
+            "must_change_pw": bool(row["must_change_pw"]) if row else False,
             "reveal_open": sessions.reveal_open(session.sid),
             "reveal_ttl": config.REVEAL_TTL}
 
@@ -225,13 +252,15 @@ def change_master_password(body: ChangeMasterBody, request: Request,
     _zero(new_kek); _zero(dek)
 
     conn.execute(
-        "UPDATE users SET verifier=?, kdf_salt=?, wrapped_dek=?, updated_at=? WHERE id=?",
+        "UPDATE users SET verifier=?, kdf_salt=?, wrapped_dek=?, "
+        "must_change_pw=0, updated_at=? WHERE id=?",
         (new_verifier, new_salt, new_wrapped, now_iso(), user["id"]),
     )
     conn.commit()
     log(conn, "auth.change_master", actor=user["username"],
         source_ip=client_ip(request))  # no values
-    return {"ok": True, "message": "Master password changed. Your saved secrets are intact."}
+    return {"ok": True, "must_change_pw": False,
+            "message": "Master password changed. Your saved secrets are intact."}
 
 
 def _zero(b: bytes) -> None:

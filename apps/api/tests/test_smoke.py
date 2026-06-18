@@ -26,7 +26,9 @@ from app.main import app
 from fastapi.testclient import TestClient as Client
 
 c = Client(app)
-MASTER = "correct horse battery staple"
+SUPER = "Yash"                     # reserved super-admin identity (first user)
+ADMIN_PW = "correct horse battery staple"
+MASTER = ADMIN_PW                  # kept for compatibility with later assertions
 BACKUP_PW = "vault-backup-password-1234"
 WRONG_MASTER = "definitely-not-right!!"
 WRONG_BACKUP = "wrong-backup-password-0000"
@@ -38,7 +40,7 @@ def check(label, cond):
 
 
 def relogin():
-    c.post("/api/login", json={"username": "admin", "master_password": MASTER})
+    c.post("/api/login", json={"username": SUPER, "master_password": ADMIN_PW})
 
 
 def upload_payload() -> bytes:
@@ -56,11 +58,16 @@ def upload_payload() -> bytes:
 r = c.get("/api/bootstrap")
 check("bootstrap says uninitialized", r.json()["initialized"] is False)
 
+# first user MUST be the reserved super admin 'Yash'
 r = c.post("/api/setup", json={"username": "admin", "master_password": MASTER})
-check("setup ok", r.status_code == 200)
+check("setup rejects non-Yash first user", r.status_code == 400)
 
-r = c.post("/api/login", json={"username": "admin", "master_password": MASTER})
-check("login ok", r.status_code == 200)
+r = c.post("/api/setup", json={"username": SUPER, "master_password": MASTER})
+check("setup creates Yash super admin", r.status_code == 200
+      and r.json().get("role") == "super_admin")
+
+r = c.post("/api/login", json={"username": SUPER, "master_password": MASTER})
+check("login ok", r.status_code == 200 and r.json().get("role") == "super_admin")
 
 r = c.get("/api/dashboard")
 check("dashboard", r.status_code == 200 and r.json()["total_sites"] == 2)
@@ -232,13 +239,16 @@ r = c.post("/api/change-master-password", json={
 check("change master ok", r.status_code == 200)
 
 # login with NEW master works
-r = c.post("/api/login", json={"username": "admin",
+r = c.post("/api/login", json={"username": SUPER,
                                "master_password": "new-correct-horse-battery"})
 check("login with new master ok", r.status_code == 200)
 
 # old master no longer works
-r = c.post("/api/login", json={"username": "admin", "master_password": MASTER})
+r = c.post("/api/login", json={"username": SUPER, "master_password": MASTER})
 check("old master rejected after change", r.status_code == 401)
+
+# point MASTER/relogin to the NEW password for all subsequent steps
+MASTER = ADMIN_PW = "new-correct-horse-battery"
 
 # existing secrets remain decryptable under the SAME DEK
 r = c.post("/api/reveal", json={"master_password": "new-correct-horse-battery"})
@@ -259,7 +269,7 @@ auth_throttle._lockout_until = 0.0
 locked_now = False
 fails = 0
 for _ in range(6):
-    r = c.post("/api/login", json={"username": "admin", "master_password": "NOPE-" * 4})
+    r = c.post("/api/login", json={"username": SUPER, "master_password": "NOPE-" * 4})
     if r.status_code == 429:
         locked_now = True
         break
@@ -267,7 +277,7 @@ for _ in range(6):
 check("5 failed logins trigger auth lockout", locked_now and fails == 5)
 
 # while locked, even the CORRECT master is rejected
-r = c.post("/api/login", json={"username": "admin", "master_password": MASTER})
+r = c.post("/api/login", json={"username": SUPER, "master_password": MASTER})
 check("locked blocks even correct login", r.status_code == 429)
 
 # reset throttle to continue
@@ -321,6 +331,117 @@ check("history has success + failure",
 hist_blob = json.dumps(hist)
 check("history never contains passwords",
       BACKUP_PW not in hist_blob and WRONG_BACKUP not in hist_blob)
+
+# ===========================================================================
+# RBAC: roles, site-scoping, reset-password, Yash protection
+# ===========================================================================
+print("\n-- RBAC --")
+# c is currently logged in as Yash (super admin), password = MASTER ("new-correct-horse-battery")
+
+# sites present (seeded Springfield/Hopkinsville); pick their ids
+sites = c.get("/api/sites").json()["items"]
+check("seeded sites present for RBAC", len(sites) >= 2)
+spr_id = sites[0]["id"]
+hop_id = sites[1]["id"]
+
+# Yash cannot be seen in /users by non-Yash; but Yash himself sees Yash
+me = c.get("/api/me").json()
+check("Yash sees super_admin role", me["role"] == "super_admin")
+
+# --- create a global admin ---
+r = c.post("/api/users", json={
+    "username": "gadmin", "full_name": "Global Admin",
+    "role": "global_admin", "password": "global-admin-pass-1",
+})
+check("create global admin", r.status_code == 200)
+
+# --- create a location admin assigned to Springfield only ---
+r = c.post("/api/users", json={
+    "username": "spr_admin", "full_name": "Springfield Admin",
+    "role": "location_admin", "password": "loc-admin-pass-001",
+    "site_ids": [spr_id],
+})
+check("create location admin", r.status_code == 200)
+
+# reserved username may never be created via /users
+r = c.post("/api/users", json={
+    "username": "Yash", "role": "global_admin", "password": "x" * 12,
+})
+check("reserved username rejected", r.status_code == 400)
+
+# Yash sees himself in the user list
+users = c.get("/api/users").json()["items"]
+check("Yash (super) sees Yash in users", any(u["username"] == "Yash" for u in users))
+
+# --- global admin session ---
+g = Client(app)
+r = g.post("/api/login", json={"username": "gadmin", "master_password": "global-admin-pass-1"})
+check("global admin login", r.status_code == 200 and r.json()["role"] == "global_admin")
+gusers = g.get("/api/users").json()["items"]
+check("global admin CANNOT see Yash (hidden)", all(u["username"] != "Yash" for u in gusers))
+check("global admin CANNOT reset passwords", g.get("/api/users").json().get("can_reset_password") is False)
+# global admin sees all sites
+check("global admin sees all sites", len(g.get("/api/sites").json()["items"]) >= 2)
+
+# --- location admin session (Springfield only) ---
+l = Client(app)
+r = l.post("/api/login", json={"username": "spr_admin", "master_password": "loc-admin-pass-001"})
+check("location admin login", r.status_code == 200 and r.json()["role"] == "location_admin")
+
+# location admin sees ONLY Springfield
+lsites = l.get("/api/sites").json()["items"]
+check("location admin sees 1 site", len(lsites) == 1)
+check("location admin sees only assigned site", lsites[0]["id"] == spr_id)
+
+# location admin cannot create sites
+check("location admin cannot create site", l.post("/api/sites", json={"name": "X"}).status_code == 403)
+
+# --- scope test: create a credential per site as Yash, verify visibility ---
+c.post("/api/credentials", json={
+    "title": "SPR-cred", "site_id": spr_id, "cred_type": "Linux SSH",
+    "password": "spr-secret", "status": "Active"})
+c.post("/api/credentials", json={
+    "title": "HOP-cred", "site_id": hop_id, "cred_type": "Linux SSH",
+    "password": "hop-secret", "status": "Active"})
+
+lcreds = l.get("/api/credentials").json()["items"]
+ltitles = {x["title"] for x in lcreds}
+check("location admin sees only SPR credential", "SPR-cred" in ltitles and "HOP-cred" not in ltitles)
+
+# find the HOP credential id (as Yash) to test 404-on-out-of-scope
+allcreds = c.get("/api/credentials").json()["items"]
+hop_cid = next(x["id"] for x in allcreds if x["title"] == "HOP-cred")
+
+# location admin's view of HOP credential -> 404 (not 403; no existence leak)
+r = l.get(f"/api/credentials/{hop_cid}/view")
+check("location admin blocked from out-of-scope cred (404)", r.status_code in (403, 404))
+
+# location admin cannot reset passwords (not super)
+r = l.post("/api/users/2/reset-password", json={"new_password": "whatever-pass-12"})
+check("location admin cannot reset passwords", r.status_code == 403)
+
+# global admin also cannot reset passwords
+r = g.post("/api/users/2/reset-password", json={"new_password": "whatever-pass-12"})
+check("global admin cannot reset passwords", r.status_code == 403)
+
+# --- super admin CAN reset a user's password ---
+r = c.post("/api/users/2/reset-password", json={"new_password": "gadmin-newpass-99"})
+check("super admin resets password", r.status_code == 200)
+# old password no longer works
+r = g.post("/api/login", json={"username": "gadmin", "master_password": "global-admin-pass-1"})
+check("old password fails after reset", r.status_code == 401)
+# new password works and must_change_pw is set
+r = g.post("/api/login", json={"username": "gadmin", "master_password": "gadmin-newpass-99"})
+check("new password works after reset", r.status_code == 200 and r.json()["must_change_pw"] is True)
+
+# --- Yash protection: cannot delete/rename/demote the super admin ---
+yash_id = next(u["id"] for u in users if u["username"] == "Yash")
+check("cannot delete Yash", c.delete(f"/api/users/{yash_id}").status_code == 403)
+check("cannot demote Yash",
+      c.put(f"/api/users/{yash_id}", json={"role": "global_admin"}).status_code == 403)
+
+# location admin cannot even list users (admin-only endpoint)
+check("location admin cannot manage users", l.get("/api/users").status_code == 403)
 
 # ======================= excel import =======================
 # Resolve relative to the project root so the test works in any location.

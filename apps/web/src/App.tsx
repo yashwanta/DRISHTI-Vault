@@ -11,13 +11,16 @@ import { NetworkPage } from "./pages/NetworkPage";
 import { ChangeLogPage } from "./pages/ChangeLogPage";
 import { AuditPage } from "./pages/AuditPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { UserManagementPage } from "./pages/UserManagementPage";
 
 export function App() {
   const [initialized, setInitialized] = React.useState<boolean | null>(null);
   const [authed, setAuthed] = React.useState(false);
   const [username, setUsername] = React.useState("");
+  const [role, setRole] = React.useState<string>("super_admin");
   const [revealOpen, setRevealOpen] = React.useState(false);
   const [revealTtl, setRevealTtl] = React.useState(120);
+  const [mustChangePw, setMustChangePw] = React.useState(false);
 
   // Bootstrap: is vault set up? are we already authed (session cookie)?
   const refresh = React.useCallback(async () => {
@@ -32,7 +35,9 @@ export function App() {
       const me = await api.me();
       setAuthed(true);
       setUsername(me.username);
+      setRole(me.role || "super_admin");
       setRevealOpen(me.reveal_open);
+      setMustChangePw(!!me.must_change_pw);
     } catch {
       setAuthed(false);
     }
@@ -40,11 +45,12 @@ export function App() {
 
   React.useEffect(() => {
     refresh();
-    // poll reveal state occasionally (cheap)
     const t = window.setInterval(async () => {
       try {
         const me = await api.me();
         setRevealOpen(me.reveal_open);
+        setRole(me.role || "super_admin");
+        setMustChangePw(!!me.must_change_pw);
       } catch {
         setAuthed(false);
       }
@@ -62,16 +68,20 @@ export function App() {
         <AuthGate
           initialized={initialized}
           loading={false}
-          onAuthed={(u, _revealOpen, ttl) => {
+          onAuthed={(r) => {
             setAuthed(true);
-            setUsername(u);
+            setUsername(r.username);
+            setRole(r.role);
             setRevealOpen(false);
-            setRevealTtl(ttl);
+            setRevealTtl(r.revealTtl);
+            setMustChangePw(r.mustChangePw);
           }}
         />
       </HashRouter>
     );
   }
+
+  const isAdmin = role === "super_admin" || role === "global_admin";
 
   return (
     <HashRouter>
@@ -80,12 +90,15 @@ export function App() {
           element={
             <Layout
               username={username}
+              role={role}
               revealOpen={revealOpen}
+              mustChangePw={mustChangePw}
               onLocked={() => {
                 setAuthed(false);
                 setRevealOpen(false);
                 refresh();
               }}
+              onPwChanged={() => setMustChangePw(false)}
             />
           }
         >
@@ -97,6 +110,8 @@ export function App() {
           <Route path="/changelog" element={<ChangeLogPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          {/* User Management is admin-only */}
+          <Route path="/users" element={isAdmin ? <UserManagementPage /> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

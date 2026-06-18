@@ -14,7 +14,7 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from .. import config, crypto
+from .. import config, crypto, rbac
 from ..audit import log
 from ..db import db_cursor, get_db, now_iso
 from ..deps import client_ip, get_session, require_reveal
@@ -68,16 +68,46 @@ def _mask(token):
     return "••••••"
 
 
+def _viewer(conn, session):
+    """Return (user_row, allowed_site_ids_or_None) for the session."""
+    row = conn.execute("SELECT * FROM users WHERE id=?", (session.user_id,)).fetchone()
+    return row, rbac.visible_site_ids(conn, row)
+
+
+def _can_access_site(allowed, site_id) -> bool:
+    return rbac.can_access_site(None, allowed, site_id)
+
+
+def _scope_clause(allowed, col="c.site_id"):
+    """Return ('SQL', []) to AND-into a WHERE, or ('1=1', []) if unrestricted."""
+    if allowed is None:
+        return "1=1", []
+    if not allowed:
+        return "1=0", []
+    ph = ",".join("?" for _ in allowed)
+    return f"{col} IN ({ph})", list(allowed)
+
+
+def _require_access_or_404(conn, session, allowed, cred_row, cid):
+    """404 (not 403) when out of scope — avoid leaking existence."""
+    if cred_row is None or not _can_access_site(allowed, cred_row["site_id"]):
+        raise HTTPException(404, "Credential not found")
+
+
 @router.get("/credentials")
 def list_credentials(session=Depends(get_session)):
     conn = get_db()
+    _, allowed = _viewer(conn, session)
+    clause, args = _scope_clause(allowed)
     out = []
     for r in conn.execute(
         "SELECT c.*, s.name AS site_name, a.app_vm_name AS asset_name "
         "FROM credentials c "
         "LEFT JOIN sites s ON s.id=c.site_id "
         "LEFT JOIN assets a ON a.id=c.asset_id "
-        "ORDER BY c.title"
+        f"WHERE {clause} "
+        "ORDER BY c.title",
+        args,
     ):
         d = _masked(r)
         d["site_name"] = r["site_name"]
@@ -94,6 +124,10 @@ def create_credential(body: CredentialIn, request: Request,
                       session=Depends(get_session)):
     if body.cred_type not in CRED_TYPES:
         raise HTTPException(400, "Invalid credential type")
+    conn = get_db()
+    _, allowed = _viewer(conn, session)
+    if not _can_access_site(allowed, body.site_id):
+        raise HTTPException(403, "You cannot create credentials for that site.")
     with db_cursor() as cur:
         cur.execute(
             "INSERT INTO credentials(title, site_id, asset_id, cred_type, "
@@ -116,10 +150,14 @@ def update_credential(cid: int, body: CredentialIn, request: Request,
                       session=Depends(get_session)):
     if body.cred_type not in CRED_TYPES:
         raise HTTPException(400, "Invalid credential type")
+    conn = get_db()
+    _, allowed = _viewer(conn, session)
     with db_cursor() as cur:
-        cur.execute("SELECT 1 FROM credentials WHERE id=?", (cid,))
-        if cur.fetchone() is None:
+        r = cur.execute("SELECT site_id FROM credentials WHERE id=?", (cid,)).fetchone()
+        if r is None or not _can_access_site(allowed, r["site_id"]):
             raise HTTPException(404, "Credential not found")
+        if not _can_access_site(allowed, body.site_id):
+            raise HTTPException(403, "You cannot move a credential to that site.")
         cur.execute(
             "UPDATE credentials SET title=?, site_id=?, asset_id=?, cred_type=?, "
             "username_enc=?, password_enc=?, url_host_enc=?, port=?, rotation_due=?, "
@@ -142,10 +180,12 @@ def rotate_credential(cid: int, request: Request, session=Depends(get_session)):
     Returns the new plaintext ONCE to the caller — copy it now. Does not
     require reveal (this is a create/generate op), but is audit-logged.
     """
+    conn = get_db()
+    _, allowed = _viewer(conn, session)
     with db_cursor() as cur:
-        cur.execute("SELECT title FROM credentials WHERE id=?", (cid,))
-        row = cur.fetchone()
-        if row is None:
+        r = cur.execute("SELECT title, site_id FROM credentials WHERE id=?",
+                        (cid,)).fetchone()
+        if r is None or not _can_access_site(allowed, r["site_id"]):
             raise HTTPException(404, "Credential not found")
         new_pw = _gen_password()
         cur.execute(
@@ -153,7 +193,7 @@ def rotate_credential(cid: int, request: Request, session=Depends(get_session)):
             (_enc(session, new_pw), _next_rotation_due(), now_iso(), cid),
         )
         log(cur.connection, "credential.rotate", actor=session.username,
-            target_type="credential", target_id=cid, detail=row["title"],
+            target_type="credential", target_id=cid, detail=r["title"],
             source_ip=client_ip(request))
     return {"ok": True, "new_password": new_pw,
             "clipboard_ttl": config.CLIPBOARD_TTL}
@@ -164,9 +204,9 @@ def view_credential(cid: int, request: Request,
                     session=Depends(require_reveal)):
     """Reveal plaintext. Requires open reveal window (master re-auth)."""
     conn = get_db()
+    _, allowed = _viewer(conn, session)
     r = conn.execute("SELECT * FROM credentials WHERE id=?", (cid,)).fetchone()
-    if r is None:
-        raise HTTPException(404, "Credential not found")
+    _require_access_or_404(conn, session, allowed, r, cid)
     log(conn, "credential.view", actor=session.username,
         target_type="credential", target_id=cid, detail=r["title"],
         source_ip=client_ip(request))
@@ -188,8 +228,10 @@ def copy_credential(cid: int, request: Request,
     Requires open reveal window. Audit-logged. The server never logs the value.
     """
     conn = get_db()
-    r = conn.execute("SELECT title FROM credentials WHERE id=?", (cid,)).fetchone()
-    if r is None:
+    _, allowed = _viewer(conn, session)
+    r = conn.execute("SELECT title, site_id FROM credentials WHERE id=?",
+                     (cid,)).fetchone()
+    if r is None or not _can_access_site(allowed, r["site_id"]):
         raise HTTPException(404, "Credential not found")
     log(conn, "credential.copy", actor=session.username,
         target_type="credential", target_id=cid, detail=r["title"],
@@ -199,14 +241,16 @@ def copy_credential(cid: int, request: Request,
 
 @router.delete("/credentials/{cid}")
 def delete_credential(cid: int, request: Request, session=Depends(get_session)):
+    conn = get_db()
+    _, allowed = _viewer(conn, session)
     with db_cursor() as cur:
-        cur.execute("SELECT title FROM credentials WHERE id=?", (cid,))
-        row = cur.fetchone()
-        if row is None:
+        r = cur.execute("SELECT title, site_id FROM credentials WHERE id=?",
+                        (cid,)).fetchone()
+        if r is None or not _can_access_site(allowed, r["site_id"]):
             raise HTTPException(404, "Credential not found")
         cur.execute("DELETE FROM credentials WHERE id=?", (cid,))
         log(cur.connection, "credential.delete", actor=session.username,
-            target_type="credential", target_id=cid, detail=row["title"],
+            target_type="credential", target_id=cid, detail=r["title"],
             source_ip=client_ip(request))
     return {"ok": True}
 

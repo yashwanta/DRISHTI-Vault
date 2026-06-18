@@ -1,7 +1,15 @@
 import React from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { WarningBanner } from "../components/WarningBanner";
+
+export interface AuthResult {
+  username: string;
+  role: string;
+  revealOpen: boolean;
+  revealTtl: number;
+  mustChangePw: boolean;
+}
 
 export function AuthGate({
   initialized,
@@ -10,11 +18,12 @@ export function AuthGate({
 }: {
   initialized: boolean;
   loading: boolean;
-  onAuthed: (username: string, revealOpen: boolean, revealTtl: number) => void;
+  onAuthed: (r: AuthResult) => void;
 }) {
   const navigate = useNavigate();
   const [mode, setMode] = React.useState<"login" | "setup">("login");
-  const [username, setUsername] = React.useState("admin");
+  // setup is reserved for the super-admin identity 'Yash'
+  const [username, setUsername] = React.useState("Yash");
   const [pw, setPw] = React.useState("");
   const [pw2, setPw2] = React.useState("");
   const [show, setShow] = React.useState(false);
@@ -22,7 +31,10 @@ export function AuthGate({
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
-    if (!loading) setMode(initialized ? "login" : "setup");
+    if (!loading) {
+      setMode(initialized ? "login" : "setup");
+      setUsername(initialized ? "" : "Yash");
+    }
   }, [initialized, loading]);
 
   if (loading) {
@@ -40,10 +52,17 @@ export function AuthGate({
       if (mode === "setup") {
         if (pw.length < 10) throw new Error("Master password must be at least 10 characters");
         if (pw !== pw2) throw new Error("Passwords do not match");
-        await api.setup(username.trim() || "admin", pw);
+        await api.setup("Yash", pw);
       }
-      const res: any = await api.login(username.trim() || "admin", pw);
-      onAuthed(res.username, false, res.reveal_ttl);
+      const res: any = await api.login(username.trim() || "Yash", pw);
+      onAuthed({
+        username: res.username,
+        role: res.role || "super_admin",
+        revealOpen: false,
+        revealTtl: res.reveal_ttl,
+        mustChangePw: !!res.must_change_pw,
+      });
+      if (navigate) navigate("/");  // safety; routing handled by parent
     } catch (e: any) {
       setErr(e.message || "Failed");
     } finally {
@@ -59,17 +78,18 @@ export function AuthGate({
           <h2 style={{ margin: "8px 0 0" }}>DRISHTI-Vault</h2>
           <div className="subtle">
             {mode === "setup"
-              ? "Create your master password"
+              ? "Create the Super Admin master password"
               : "Enter your master password"}
           </div>
         </div>
         <WarningBanner />
         <div style={{ height: 16 }} />
-        <label>Username</label>
+        <label>Username {mode === "setup" && <span className="subtle">(reserved: Yash)</span>}</label>
         <input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          disabled={mode === "login"}
+          disabled={mode === "setup"}
+          placeholder={mode === "login" ? "username" : ""}
         />
         <label>Master password</label>
         <div style={{ display: "flex", gap: 8 }}>
@@ -94,8 +114,9 @@ export function AuthGate({
               onKeyDown={(e) => e.key === "Enter" && submit()}
             />
             <div className="subtle" style={{ marginTop: 8 }}>
-              ⚠ This password cannot be recovered. Without it, all encrypted data is
-              permanently unreadable. See <strong>docs/RECOVERY.md</strong>.
+              ⚠ This is the <strong>Super Admin (Yash)</strong> password. It cannot be
+              recovered. Without it, all encrypted data is permanently unreadable.
+              See <strong>docs/RECOVERY.md</strong>.
             </div>
           </>
         )}
