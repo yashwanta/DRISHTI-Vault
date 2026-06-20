@@ -1,13 +1,99 @@
-# Installation
+# Installing DRISHTI-Vault
 
-## Prerequisites
+DRISHTI-Vault runs on **http://127.0.0.1:7788** (localhost only — never exposed
+to the network). There are two ways to run it:
+
+- **Option A — Podman container (recommended).** Isolated, hardened, rebuilds in
+  seconds, and matches the `DVault-CC` shortcut.
+- **Option B — Bare metal (Python + Node).** Simpler, no container runtime.
+
+## Option A — Podman container (recommended)
+
+### Quick start
+
+From the repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install-all.ps1
+```
+
+That's it. The all-in-one installer:
+
+1. **Checks for prerequisites** (Podman, Python, Node). If any are missing it
+   **installs them automatically** via winget (chocolatey fallback). If admin
+   rights are needed, it re-launches itself elevated — just approve the UAC
+   prompt.
+2. **Starts the Podman machine** (initializing one if none exists).
+3. **Protects your existing data** — if a vault database already exists, it's
+   backed up to `backups\preinstall_<timestamp>\` before anything is rebuilt.
+   Your existing master password and data are preserved.
+4. **Builds the image and runs the container** `DRISHTIVault`.
+5. **Creates the `DVault-CC.lnk`** shortcut and opens the app in your browser.
+
+When it finishes, open http://127.0.0.1:7788 and (on first run) create the
+**Super Admin (Yash)** master password.
+
+### Flags
+
+| Flag | Effect |
+|------|--------|
+| `-Force` | Rebuild the container image even if it already exists (use after pulling code changes). |
+| `-SkipLaunch` | Don't open the browser at the end. |
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install-all.ps1 -Force -SkipLaunch
+```
+
+### Day-to-day use
+
+| Action | How |
+|--------|-----|
+| Start the app | Double-click **`DVault-CC.lnk`** in the repo root |
+| Stop the container | `scripts\podman-drishtivault.ps1 -Stop` |
+| View live logs | `scripts\podman-drishtivault.ps1 -Logs` |
+
+Your encrypted database, backups, and logs live in **`data\`**, **`backups\`**,
+and **`logs\`** — they persist across container restarts and reinstalls.
+
+### Container troubleshooting
+
+**"Podman machine is not reachable after repair"**
+The Podman-on-WSL socket sometimes fails to forward to Windows localhost. The
+installer attempts the standard repair (`wsl --update`, then a machine restart)
+automatically. To do it manually:
+
+```powershell
+wsl --update
+wsl --shutdown
+podman machine start
+podman ps   # should list containers, not error
+```
+
+**Changes to the code aren't showing up**
+The container runs a built image. After editing backend/frontend code, rebuild
+and hard-refresh your browser (Ctrl+F5):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install-all.ps1 -Force
+```
+
+**Login bounces back to the login screen / "asks for password again"**
+Sessions live in memory inside the container and are wiped when it restarts.
+If you just restarted the container, your old session cookie is stale — simply
+log in again. (This is expected, not a bug.)
+
+---
+
+## Option B — Bare metal (Python + Node)
+
+### Prerequisites
 
 - **Python 3.10+** (developed/tested on 3.14) — https://python.org
 - **Node.js 18+** (with npm) — https://nodejs.org
 - Windows 10/11 (PowerShell scripts provided). The app itself is cross-platform;
   on macOS/Linux use the equivalent shell commands.
 
-## Steps
+### Steps
 
 ```powershell
 cd C:\MyProjects\DRISHTI-Vault
@@ -25,7 +111,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 5. Initialize the SQLite database (`data\drishtivault.db`) and seed sample sites
 6. Print the local URL: **http://127.0.0.1:7788**
 
-## Start
+### Start
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\start-drishtivault.ps1
@@ -34,7 +120,9 @@ powershell -ExecutionPolicy Bypass -File scripts\start-drishtivault.ps1
 This launches Uvicorn bound to `127.0.0.1:7788` (serving both `/api/*` and the
 SPA at `/`) and opens your browser.
 
-## First launch
+---
+
+## First launch (both options)
 
 1. Open **http://127.0.0.1:7788**
 2. Choose a username and a **master password** (min 10 chars). See
@@ -58,11 +146,11 @@ powershell -ExecutionPolicy Bypass -File scripts\backup-drishtivault.ps1
 
 (Vault must be unlocked in your browser; the script calls `/api/backup/export`.)
 
-## Troubleshooting
+## General troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
 | `python` not found | Install Python, or run via `py` ; ensure added to PATH |
-| Frontend shows "not built" | Run `cd apps\web && npm run build` |
+| Frontend shows "not built" | Run `cd apps\web && npm run build` (bare metal) or `install-all.ps1 -Force` (container) |
 | Port 7788 in use | Stop the other process or change `DRISHTIVAULT_PORT` |
 | Login fails after restore | By design — restore locks the vault; re-enter the restored master password |
