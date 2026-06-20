@@ -12,6 +12,8 @@ backups/**/*.enc
 backups/**/*.json
 backups/encrypted/*
 !backups/encrypted/.gitkeep
+# Pre-install DB snapshots (raw .db) created by install-all.ps1
+backups/preinstall_*/
 
 # Logs
 logs/*.log
