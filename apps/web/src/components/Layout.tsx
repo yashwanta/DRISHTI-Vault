@@ -12,6 +12,7 @@ const NAV: NavItem[] = [
   { to: "/credentials", label: "Credentials Vault", icon: "🔐" },
   { to: "/network", label: "Network Reference", icon: "🌐" },
   { to: "/changelog", label: "Change Log", icon: "📋" },
+  { to: "/notes", label: "Notes", icon: "📝" },
   { to: "/audit", label: "Audit Log", icon: "📜", admin: true },
   { to: "/users", label: "User Management", icon: "👥", admin: true },
   { to: "/settings", label: "Settings / Backup", icon: "⚙" },

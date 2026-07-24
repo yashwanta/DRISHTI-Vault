@@ -69,7 +69,7 @@ Write-Host "Starting container $Container on http://127.0.0.1:7788 ..." -Foregro
 #   -p 127.0.0.1:7788            host loopback only (never the LAN)
 podman run -d `
     --name $Container `
-    --user 1001:1001 `
+    --user 65532:65532 `
     -p 127.0.0.1:7788:7788 `
     -v $MountData `
     -v $MountBackup `

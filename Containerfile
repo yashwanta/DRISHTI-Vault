@@ -1,9 +1,10 @@
 # syntax=docker
 # DRISHTI-Vault container image
 #
-# Two-stage build:
+# Three-stage build:
 #   stage 1 (web-build): Node + npm -> builds the React SPA into /web/dist
-#   stage 2 (runtime)  : slim Python -> installs backend deps, serves SPA + API
+#   stage 2 (go-build) : Go -> builds the static API/server executable
+#   stage 3 (runtime)  : distroless -> serves SPA + API without Python
 #
 # The container listens on 127.0.0.1:7788 ONLY. Mount ./data, ./backups,
 # ./logs from the host so the encrypted DB and backups persist.
@@ -16,24 +17,20 @@ RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 COPY apps/web ./
 RUN npm run build
 
-# ---- Stage 2: runtime -------------------------------------------------------
-FROM python:3.12-slim-bookworm AS runtime
+# ---- Stage 2: compile the Go backend ----------------------------------------
+FROM golang:1.25-bookworm AS go-build
+WORKDIR /src
+ENV CGO_ENABLED=1
+COPY apps/api-go/go.mod apps/api-go/go.sum ./
+RUN go mod download
+COPY apps/api-go ./
+RUN test "$(go env CGO_ENABLED)" = "1" \
+ && go build -trimpath -ldflags="-s -w" -o /out/drishtivault ./cmd/server
 
-# Runtime deps: argon2 / cryptography need build wheels; on slim we install
-# the libraries they bundle. The wheels from PyPI are self-contained, so a
-# plain pip install is enough for the release wheels.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends libffi8 \
- && rm -rf /var/lib/apt/lists/*
-
+# ---- Stage 3: minimal runtime ----------------------------------------------
+FROM gcr.io/distroless/base-debian12:nonroot AS runtime
 WORKDIR /srv/drishtivault
-
-# Install backend deps first (better layer caching)
-COPY apps/api/requirements.txt /srv/drishtivault/apps/api/requirements.txt
-RUN pip install --no-cache-dir -r /srv/drishtivault/apps/api/requirements.txt
-
-# Copy backend source
-COPY apps/api /srv/drishtivault/apps/api
+COPY --from=go-build /out/drishtivault /srv/drishtivault/drishtivault
 
 # Copy the built SPA from stage 1
 COPY --from=web-build /web/dist /srv/drishtivault/apps/web/dist
@@ -52,23 +49,16 @@ ENV DRISHTIVAULT_HOST=0.0.0.0 \
     DRISHTIVAULT_DB_PATH=/srv/drishtivault/data/drishtivault.db \
     DRISHTIVAULT_BACKUP_DIR=/srv/drishtivault/backups/encrypted \
     DRISHTIVAULT_LOG_DIR=/srv/drishtivault/logs \
-    PYTHONUNBUFFERED=1
+    DRISHTIVAULT_WEB_DIST=/srv/drishtivault/apps/web/dist
 
 EXPOSE 7788
 
-# ---- Run as a non-root user (least privilege) ------------------------------
-RUN groupadd --system --gid 1001 drishti \
- && useradd  --system --uid 1001 --gid drishti --no-create-home --home-dir /srv/drishtivault drishti \
- && chown -R drishti:drishti /srv/drishtivault
-USER 1001:1001
+# Distroless nonroot runs as uid/gid 65532.
+USER 65532:65532
 
-# Health check hits the in-container port. (OCI format ignores HEALTHCHECK at
-# runtime under Podman, but it documents intent and works under Docker/Moby.)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD python -c "import urllib.request,sys; \
-  sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7788/api/health',timeout=3).status==200 else 1)"
+# The image has no shell or curl; orchestration probes /api/health externally.
+HEALTHCHECK NONE
 
 # Bind 0.0.0.0 INSIDE the container's isolated namespace. Network isolation +
 # the host-side publish (-p 127.0.0.1:7788:7788) is what keeps it localhost-only.
-WORKDIR /srv/drishtivault/apps/api
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7788"]
+ENTRYPOINT ["/srv/drishtivault/drishtivault"]

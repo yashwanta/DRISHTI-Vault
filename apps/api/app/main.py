@@ -87,7 +87,7 @@ def bootstrap() -> dict:
 # --- Route modules ----------------------------------------------------------
 from .routes import (  # noqa: E402
     auth, dashboard, sites, assets, credentials, network,
-    changelog, audit, import_excel, backup, settings, users, csv,
+    changelog, audit, import_excel, backup, settings, users, csv, notes,
 )
 
 app.include_router(auth.router, prefix="/api")
@@ -103,6 +103,7 @@ app.include_router(backup.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(csv.router, prefix="/api")
+app.include_router(notes.router, prefix="/api")
 
 
 # --- Serve the SPA ----------------------------------------------------------

@@ -29,7 +29,7 @@ The helper builds the image `drishti-vault:latest`, starts the container
 | Aspect | Value |
 |--------|-------|
 | Container name | `DRISHTIVault` |
-| Image | `drishti-vault:latest` (two-stage: Node build → slim Python runtime, ~195 MB) |
+| Image | `drishti-vault:latest` (Node + Go build stages → distroless runtime, ~33 MB) |
 | Port | `127.0.0.1:7788:7788` (host loopback only — never `0.0.0.0`) |
 | Data volume | host `data\` → `/srv/drishtivault/data` (the encrypted SQLite DB) |
 | Backup volume | host `backups\encrypted\` → `/srv/drishtivault/backups/encrypted` |
@@ -45,7 +45,7 @@ itself is stateless aside from app code.
 The container runs under least-privilege by default (set both in the image and
 in the run flags):
 
-- **Non-root user** `uid=1001(drishti)` — the app never runs as root.
+- **Non-root user** `uid=65532(nonroot)` — the app never runs as root.
 - **Read-only root filesystem** (`--read-only`) — app code is immutable; only
   the mounted `data`, `backups/encrypted`, `logs`, and a small `/tmp` tmpfs are
   writable.

@@ -153,19 +153,31 @@ def update_credential(cid: int, body: CredentialIn, request: Request,
     conn = get_db()
     _, allowed = _viewer(conn, session)
     with db_cursor() as cur:
-        r = cur.execute("SELECT site_id FROM credentials WHERE id=?", (cid,)).fetchone()
+        r = cur.execute(
+            "SELECT site_id, username_enc, password_enc, url_host_enc, notes_enc "
+            "FROM credentials WHERE id=?",
+            (cid,),
+        ).fetchone()
         if r is None or not _can_access_site(allowed, r["site_id"]):
             raise HTTPException(404, "Credential not found")
         if not _can_access_site(allowed, body.site_id):
             raise HTTPException(403, "You cannot move a credential to that site.")
+
+        def keep_or_encrypt(field: str, value: str | None):
+            if value in (None, ""):
+                return r[field]
+            return _enc(session, value)
+
         cur.execute(
             "UPDATE credentials SET title=?, site_id=?, asset_id=?, cred_type=?, "
             "username_enc=?, password_enc=?, url_host_enc=?, port=?, rotation_due=?, "
             "status=?, notes_enc=?, updated_at=? WHERE id=?",
             (body.title, body.site_id, body.asset_id, body.cred_type,
-             _enc(session, body.username), _enc(session, body.password),
-             _enc(session, body.url_host), body.port, body.rotation_due,
-             body.status, _enc(session, body.notes), now_iso(), cid),
+             keep_or_encrypt("username_enc", body.username),
+             keep_or_encrypt("password_enc", body.password),
+             keep_or_encrypt("url_host_enc", body.url_host), body.port,
+             body.rotation_due, body.status,
+             keep_or_encrypt("notes_enc", body.notes), now_iso(), cid),
         )
         log(cur.connection, "credential.edit", actor=session.username,
             target_type="credential", target_id=cid, detail=body.title,

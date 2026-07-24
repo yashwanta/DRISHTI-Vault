@@ -20,6 +20,8 @@ export function SettingsPage() {
   const [settings, setSettings] = React.useState<any>(null);
   const [dialog, setDialog] = React.useState<DialogState>({ kind: "none" });
   const [busy, setBusy] = React.useState(false);
+  const [excelBusy, setExcelBusy] = React.useState(false);
+  const [csvBusy, setCsvBusy] = React.useState(false);
   const [importPreview, setImportPreview] = React.useState<any | null>(null);
   const [history, setHistory] = React.useState<any[]>([]);
   const [lastInfo, setLastInfo] = React.useState<any>(null);
@@ -52,17 +54,21 @@ export function SettingsPage() {
     setCsvFile(file);
     setCsvFileName(`${file.name} · ${humanSize(file.size)}`);
     setCsvResult(null);
-    setBusy(true);
+    setCsvBusy(true);
     try {
       const p = await api.csvPreview(file);
       setCsvPreview(p);
-    } catch (e: any) { show("CSV preview failed: " + e.message); }
-    finally { setBusy(false); }
+    } catch (e: any) {
+      setCsvFile(null);
+      setCsvFileName("");
+      show("CSV preview failed: " + e.message);
+    }
+    finally { setCsvBusy(false); }
   };
 
   const commitCsv = async () => {
     if (!csvFile || !csvPreview) return;
-    setBusy(true);
+    setCsvBusy(true);
     try {
       const res: any = await api.csvCommit(csvFile, csvPreview.table);
       setCsvResult(res);
@@ -74,7 +80,7 @@ export function SettingsPage() {
       setCsvFile(null);
       setCsvFileName("");
     } catch (e: any) { show("CSV import failed: " + e.message); }
-    finally { setBusy(false); }
+    finally { setCsvBusy(false); }
   };
 
   const refreshStatus = React.useCallback(() => {
@@ -94,18 +100,18 @@ export function SettingsPage() {
   const onPickImport = async (file: File | undefined) => {
     if (!file) return;
     setExcelFileName(`${file.name} · ${humanSize(file.size)}`);
-    setBusy(true);
+    setExcelBusy(true);
     try {
       setImportPreview(await api.previewImport(file));
     } catch (e: any) {
       show("Import error: " + e.message);
     } finally {
-      setBusy(false);
+      setExcelBusy(false);
     }
   };
 
   const commitImport = async () => {
-    setBusy(true);
+    setExcelBusy(true);
     try {
       const payload = {
         sites: importPreview.sites,
@@ -120,7 +126,7 @@ export function SettingsPage() {
     } catch (e: any) {
       show("Commit failed: " + e.message);
     } finally {
-      setBusy(false);
+      setExcelBusy(false);
     }
   };
 
@@ -297,7 +303,7 @@ export function SettingsPage() {
           </p>
           <DropZone
             accept=".xlsx"
-            busy={busy}
+            busy={excelBusy}
             selected={excelFileName}
             hint=".xlsx workbook only"
             onPick={onPickImport}
@@ -311,8 +317,15 @@ export function SettingsPage() {
             (passwords, keys) are <strong>encrypted on import</strong>. Preview
             is a dry run — nothing is written until you confirm.
           </p>
+          <button
+            className="btn btn-primary"
+            style={{ width: "100%", marginBottom: 12 }}
+            onClick={() => downloadTemplate("credentials")}
+          >
+            Download Credentials Template
+          </button>
           <label className="subtle" style={{ display: "block", marginBottom: 4 }}>
-            Download template
+            Other templates
           </label>
           <div className="btn-row" style={{ marginBottom: 10, flexWrap: "wrap" }}>
             {CSV_TABLES.map((t) => (
@@ -326,7 +339,7 @@ export function SettingsPage() {
           </label>
           <DropZone
             accept=".csv"
-            busy={busy}
+            busy={csvBusy}
             selected={csvFileName}
             hint="Use a downloaded template; secret columns encrypt on import"
             onPick={onPickCsv}
@@ -405,8 +418,8 @@ export function SettingsPage() {
           </div>
           <div className="btn-row" style={{ justifyContent: "flex-end", marginTop: 18 }}>
             <button className="btn" onClick={() => { setCsvPreview(null); setCsvFile(null); setCsvFileName(""); }}>Cancel</button>
-            <button className="btn btn-primary" disabled={busy || csvPreview.counts.valid === 0} onClick={commitCsv}>
-              {busy ? "Importing…" : `Import ${csvPreview.counts.valid} row(s)`}
+            <button className="btn btn-primary" disabled={csvBusy || csvPreview.counts.valid === 0} onClick={commitCsv}>
+              {csvBusy ? "Importing…" : `Import ${csvPreview.counts.valid} row(s)`}
             </button>
           </div>
         </Modal>
@@ -473,8 +486,8 @@ export function SettingsPage() {
           )}
           <div className="btn-row" style={{ justifyContent: "flex-end", marginTop: 18 }}>
             <button className="btn" onClick={() => { setImportPreview(null); setExcelFileName(""); }}>Cancel</button>
-            <button className="btn btn-primary" onClick={commitImport} disabled={busy}>
-              {busy ? "Importing…" : "Confirm Import (non-secret data)"}
+            <button className="btn btn-primary" onClick={commitImport} disabled={excelBusy}>
+              {excelBusy ? "Importing…" : "Confirm Import (non-secret data)"}
             </button>
           </div>
         </Modal>
