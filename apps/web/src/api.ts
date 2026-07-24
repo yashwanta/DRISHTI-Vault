@@ -3,10 +3,20 @@
 
 const BASE = "";
 
-async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
+async function req<T>(
+  path: string,
+  opts: RequestInit = {},
+  timeoutMs?: number
+): Promise<T> {
+  const controller = timeoutMs && !opts.signal ? new AbortController() : null;
+  const timeout = controller
+    ? window.setTimeout(() => controller.abort(), timeoutMs)
+    : null;
+
   const init: RequestInit = {
     credentials: "include",
     ...opts,
+    signal: opts.signal || controller?.signal,
     headers: {
       ...(opts.body && !(opts.body instanceof FormData)
         ? { "Content-Type": "application/json" }
@@ -14,24 +24,34 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
       ...(opts.headers || {}),
     },
   };
-  const res = await fetch(BASE + path, init);
-  if (res.status === 204) return undefined as T;
-  const text = await res.text();
-  let data: any = null;
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
+
+  try {
+    const res = await fetch(BASE + path, init);
+    if (res.status === 204) return undefined as T;
+    const text = await res.text();
+    let data: any = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
     }
+    if (!res.ok) {
+      const detail = (data && data.detail) || `HTTP ${res.status}`;
+      const err = new Error(detail);
+      (err as any).status = res.status;
+      throw err;
+    }
+    return data as T;
+  } catch (e: any) {
+    if (e?.name === "AbortError") {
+      throw new Error("Request timed out. Refresh the page and try again.");
+    }
+    throw e;
+  } finally {
+    if (timeout !== null) window.clearTimeout(timeout);
   }
-  if (!res.ok) {
-    const detail = (data && data.detail) || `HTTP ${res.status}`;
-    const err = new Error(detail);
-    (err as any).status = res.status;
-    throw err;
-  }
-  return data as T;
 }
 
 export const api = {
@@ -179,14 +199,28 @@ export const api = {
   csvPreview: (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
-    return req<any>("/api/csv/preview", { method: "POST", body: fd });
+    return req<any>("/api/csv/preview", { method: "POST", body: fd }, 30000);
   },
   csvCommit: (file: File, table: string) => {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("table", table);
-    return req<any>("/api/csv/commit", { method: "POST", body: fd });
+    return req<any>("/api/csv/commit", { method: "POST", body: fd }, 30000);
   },
+
+  // ---- Encrypted Notes ----
+  // GET /notes returns decrypted content for an authenticated session (no
+  // master-password re-auth / reveal window - unlike credentials). Search is
+  // performed client-side on the result. See routes/notes.py for the trade-off.
+  listNotes: () => req<{ items: any[] }>("/api/notes"),
+  createNote: (body: any) =>
+    req<{ id: number }>("/api/notes", { method: "POST", body: JSON.stringify(body) }),
+  updateNote: (id: number, body: any) =>
+    req(`/api/notes/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteNote: (id: number) =>
+    req(`/api/notes/${id}`, { method: "DELETE" }),
+  toggleNotePin: (id: number) =>
+    req<{ id: number; pinned: boolean }>(`/api/notes/${id}/pin`, { method: "POST" }),
 };
 
 // Download a CSV template (blob fetch; generic req() returns JSON).

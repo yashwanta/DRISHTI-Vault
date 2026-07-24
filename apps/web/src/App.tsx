@@ -10,6 +10,7 @@ import { CredentialsPage } from "./pages/CredentialsPage";
 import { NetworkPage } from "./pages/NetworkPage";
 import { ChangeLogPage } from "./pages/ChangeLogPage";
 import { AuditPage } from "./pages/AuditPage";
+import { NotesPage } from "./pages/NotesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { UserManagementPage } from "./pages/UserManagementPage";
 
@@ -108,6 +109,7 @@ export function App() {
           <Route path="/credentials" element={<CredentialsPage />} />
           <Route path="/network" element={<NetworkPage />} />
           <Route path="/changelog" element={<ChangeLogPage />} />
+          <Route path="/notes" element={<NotesPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           {/* User Management is admin-only */}

@@ -13,55 +13,52 @@ function Fail($t)   { Write-Host "  [XX] $t" -ForegroundColor Red; exit 1 }
 
 Header "DRISHTI-Vault installer"
 
-# --- Python ---
-Header "Check Python"
-try {
-    $py = & python --version 2>&1
-    Ok "Python found: $py"
-} catch {
-    Fail "Python not found. Install Python 3.10+ from https://python.org and re-run."
-}
-
 # --- Node ---
 Header "Check Node.js"
 try {
     $node = & node --version 2>&1
-    $npm  = & npm --version 2>&1
+    $npm  = & npm.cmd --version 2>&1
     Ok "Node found: $node (npm $npm)"
 } catch {
     Fail "Node.js not found. Install Node 18+ from https://nodejs.org and re-run."
 }
 
-# --- Backend deps ---
-Header "Install backend dependencies (FastAPI, argon2-cffi, cryptography)"
-Push-Location (Join-Path $Root "apps\api")
-& python -m pip install --upgrade pip | Out-Null
-& python -m pip install -r requirements.txt
-Pop-Location
-Ok "Backend dependencies installed"
+# --- Go ---
+Header "Check Go"
+try {
+    $go = & go version 2>&1
+    Ok "Go found: $go"
+} catch {
+    Fail "Go 1.25+ not found. Install Go from https://go.dev/dl/ and re-run."
+}
 
 # --- Frontend deps ---
 Header "Install frontend dependencies"
 Push-Location (Join-Path $Root "apps\web")
-& npm install
+& npm.cmd install
 Pop-Location
 Ok "Frontend dependencies installed"
 
 # --- Build frontend ---
 Header "Build frontend (React + TypeScript -> dist)"
 Push-Location (Join-Path $Root "apps\web")
-& npm run build
+& npm.cmd run build
 if ($LASTEXITCODE -ne 0) { Fail "Frontend build failed." }
 Pop-Location
 Ok "Frontend built to apps\web\dist"
 
-# --- Initialize DB ---
-Header "Initialize local database"
-Push-Location (Join-Path $Root "apps\api")
-& python -c "from app.db import init_db; init_db(); print('DB ready')"
-if ($LASTEXITCODE -ne 0) { Fail "DB init failed." }
+# --- Build Go backend ---
+Header "Build Go backend"
+Push-Location (Join-Path $Root "apps\api-go")
+$env:GOCACHE = Join-Path (Get-Location) ".gocache"
+$env:GOMODCACHE = Join-Path (Get-Location) ".gomodcache"
+& go build -trimpath -o drishtivault.exe .\cmd\server
+if ($LASTEXITCODE -ne 0) { Fail "Go backend build failed." }
 Pop-Location
-Ok "Database initialized at data\drishtivault.db"
+Ok "Go backend built to apps\api-go\drishtivault.exe"
+
+# The Go server initializes or migrates SQLite atomically on first start.
+Ok "Database will be initialized by the Go server on first start"
 
 # --- Directories ---
 foreach ($d in @("data","backups\encrypted","logs")) {

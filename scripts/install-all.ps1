@@ -1,8 +1,8 @@
 ﻿# DRISHTI-Vault - all-in-one installer (Podman container path).
 #
 # Turns a Windows machine into a running DRISHTI-Vault container on
-# http://127.0.0.1:7788, installing any missing prerequisites (Podman, Python,
-# Node) along the way via winget (choco fallback). Idempotent: safe to re-run.
+# http://127.0.0.1:7788, installing Podman if needed. Go and Node run only
+# inside the image build stages. Idempotent: safe to re-run.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\install-all.ps1
@@ -85,7 +85,7 @@ function Install-Tool($key, $cmd) {
 }
 
 # --- relaunch elevated if a prereq is missing and we are not admin ----------
-$NeedAdmin = (-not (Test-Command podman)) -or (-not (Test-Command python)) -or (-not (Test-Command node))
+$NeedAdmin = -not (Test-Command podman)
 $isAdmin   = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
              [Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($NeedAdmin -and -not $isAdmin) {
@@ -104,8 +104,6 @@ Header "DRISHTI-Vault installer (Podman container)"
 # --- prerequisites ----------------------------------------------------------
 Header "Check prerequisites"
 if (Test-Command podman) { Ok "Podman: $(& podman --version)" }      else { Install-Tool "podman" "podman" }
-if (Test-Command python) { Ok "Python: $(& python --version 2>&1)" } else { Install-Tool "python" "python" }
-if (Test-Command node)   { Ok "Node:   $(& node --version)" }        else { Install-Tool "node" "node" }
 Ok "All prerequisites present."
 
 # --- Podman machine readiness ----------------------------------------------

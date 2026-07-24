@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
 
-$ApiDir  = Join-Path $Root "apps\api"
+$ApiDir  = Join-Path $Root "apps\api-go"
 $WebDir  = Join-Path $Root "apps\web"
 $Dist    = Join-Path $WebDir "dist"
 $Index   = Join-Path $Dist "index.html"
@@ -75,7 +75,7 @@ if (-not (Test-Path $Index)) {
 if ($needBuild) {
     Write-Host "  Building SPA..." -ForegroundColor Yellow
     Push-Location $WebDir
-    & npm run build
+    & npm.cmd run build
     if ($LASTEXITCODE -ne 0) { Write-Host "Build failed." -ForegroundColor Red; exit 1 }
     Pop-Location
     Write-Host "  Build complete." -ForegroundColor Green
@@ -117,8 +117,12 @@ Write-Host ""
 if (-not $reuseExisting) {
     Set-Location $ApiDir
     $ServerTitle = "DVault-CC  -  DRISHTI-Vault server (127.0.0.1:7788)"
+    $GoCache = Join-Path $ApiDir ".gocache"
+    $GoModCache = Join-Path $ApiDir ".gomodcache"
+    $GoExe = Join-Path $ApiDir "drishtivault.exe"
+    $RunCommand = if (Test-Path $GoExe) { "`"$GoExe`"" } else { "go run ./cmd/server" }
     Start-Process -FilePath "cmd.exe" `
-        -ArgumentList "/k title $ServerTitle & python -m uvicorn app.main:app --host 127.0.0.1 --port 7788" `
+        -ArgumentList "/k title $ServerTitle & set GOCACHE=$GoCache&& set GOMODCACHE=$GoModCache&& $RunCommand" `
         -WindowStyle Normal
 }
 

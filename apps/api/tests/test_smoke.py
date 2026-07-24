@@ -544,5 +544,68 @@ p = r.json()
 check("excel parses sites", len(p["sites"]) >= 2)
 check("excel parses assets", len(p["assets"]) >= 8)
 
+# ======================= encrypted notes =======================
+# list returns decrypted notes for an authenticated session (no reveal window,
+# unlike credentials). A valid logged-in session is enough.
+r = c.get("/api/notes")
+check("notes list ok", r.status_code == 200)
+
+# create a note with sensitive-looking content
+secret_body = "root pw: supersecret-runbook-123"
+r = c.post("/api/notes", json={
+    "title": "Springfield RDS runbook", "body": secret_body,
+    "tags": ["runbook", "springfield"], "color": "yellow", "pinned": False,
+})
+check("note created", r.status_code == 200 and r.json().get("id"))
+nid = r.json()["id"]
+
+# the body must be stored ENCRYPTED, not as plaintext
+raw = c.get("/api/notes").json()["items"]
+note = next((x for x in raw if x["id"] == nid), None)
+check("note decrypts back to plaintext",
+      note and note["body"] == secret_body
+      and note["title"] == "Springfield RDS runbook"
+      and note["tags"] == ["runbook", "springfield"])
+import sqlite3 as _sqlite3
+_conn = _sqlite3.connect(os.environ["DRISHTIVAULT_DB_PATH"])
+_blob = _conn.execute("SELECT title_enc, body_enc FROM notes WHERE id=?", (nid,)).fetchone()
+_conn.close()
+check("note stored encrypted (not plaintext)",
+      secret_body not in _blob[1] and "Springfield" not in _blob[0])
+
+# update (edit) the note
+r = c.put(f"/api/notes/{nid}", json={"body": "updated-body", "pinned": True})
+check("note updated", r.status_code == 200 and r.json().get("updated"))
+note = next((x for x in c.get("/api/notes").json()["items"] if x["id"] == nid), None)
+check("note edit persisted", note["body"] == "updated-body" and note["pinned"] is True)
+check("note pinned sorts first",
+      c.get("/api/notes").json()["items"][0]["id"] == nid)
+
+# toggle pin back off
+r = c.post(f"/api/notes/{nid}/pin")
+check("note pin toggled", r.status_code == 200 and r.json()["pinned"] is False)
+
+# a second note lets us prove client-side search filtering (title/body match)
+c.post("/api/notes", json={"title": "Hopkinsville VLAN notes", "body": "vlan 99", "tags": []})
+all_notes = c.get("/api/notes").json()["items"]
+only_vlan = [n for n in all_notes if "vlan" in (n["title"] + n["body"]).lower()]
+check("note search filter works locally",
+      len(only_vlan) == 1 and only_vlan[0]["title"] == "Hopkinsville VLAN notes")
+
+# delete
+r = c.delete(f"/api/notes/{nid}")
+check("note deleted", r.status_code == 200)
+ids = [n["id"] for n in c.get("/api/notes").json()["items"]]
+check("note gone after delete", nid not in ids)
+
+# audit captured note actions; never the secret body
+aud = c.get("/api/audit?limit=200").json()["items"]
+check("note actions audited",
+      any(a["action"] == "note.create" for a in aud)
+      and any(a["action"] == "note.delete" for a in aud))
+check("audit never contains note secrets",
+      "supersecret-runbook-123" not in json.dumps(aud)
+      and "updated-body" not in json.dumps(aud))
+
 shutil.rmtree(tmp, ignore_errors=True)
 print("\nALL E2E CHECKS PASSED")

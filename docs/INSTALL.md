@@ -5,7 +5,7 @@ to the network). There are two ways to run it:
 
 - **Option A — Podman container (recommended).** Isolated, hardened, rebuilds in
   seconds, and matches the `DVault-CC` shortcut.
-- **Option B — Bare metal (Python + Node).** Simpler, no container runtime.
+- **Option B — Bare metal (Go + Node).** Simpler, no container runtime.
 
 ## Option A — Podman container (recommended)
 
@@ -19,7 +19,7 @@ powershell -ExecutionPolicy Bypass -File install-all.ps1
 
 That's it. The all-in-one installer:
 
-1. **Checks for prerequisites** (Podman, Python, Node). If any are missing it
+1. **Checks for prerequisites** (Podman only; Go and Node run in image build stages). If missing it
    **installs them automatically** via winget (chocolatey fallback). If admin
    rights are needed, it re-launches itself elevated — just approve the UAC
    prompt.
@@ -84,11 +84,11 @@ log in again. (This is expected, not a bug.)
 
 ---
 
-## Option B — Bare metal (Python + Node)
+## Option B — Bare metal (Go + Node)
 
 ### Prerequisites
 
-- **Python 3.10+** (developed/tested on 3.14) — https://python.org
+- **Go 1.25+** — https://go.dev/dl/
 - **Node.js 18+** (with npm) — https://nodejs.org
 - Windows 10/11 (PowerShell scripts provided). The app itself is cross-platform;
   on macOS/Linux use the equivalent shell commands.
@@ -104,8 +104,8 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 
 `install.ps1` will:
 
-1. Verify Python and Node.js are installed
-2. Install backend deps (`pip install -r apps\api\requirements.txt`)
+1. Verify Go and Node.js are installed
+2. Download pinned Go modules and build `apps\api-go\drishtivault.exe`
 3. Install frontend deps (`npm install` in `apps\web`)
 4. Build the React SPA (`npm run build` → `apps\web\dist`)
 5. Initialize the SQLite database (`data\drishtivault.db`) and seed sample sites
@@ -117,7 +117,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 powershell -ExecutionPolicy Bypass -File scripts\start-drishtivault.ps1
 ```
 
-This launches Uvicorn bound to `127.0.0.1:7788` (serving both `/api/*` and the
+This launches the Go server bound to `127.0.0.1:7788` (serving both `/api/*` and the
 SPA at `/`) and opens your browser.
 
 ---
@@ -150,7 +150,7 @@ powershell -ExecutionPolicy Bypass -File scripts\backup-drishtivault.ps1
 
 | Symptom | Fix |
 |---------|-----|
-| `python` not found | Install Python, or run via `py` ; ensure added to PATH |
+| `go` not found | Install Go 1.25+ and ensure it is available on PATH |
 | Frontend shows "not built" | Run `cd apps\web && npm run build` (bare metal) or `install-all.ps1 -Force` (container) |
 | Port 7788 in use | Stop the other process or change `DRISHTIVAULT_PORT` |
 | Login fails after restore | By design — restore locks the vault; re-enter the restored master password |

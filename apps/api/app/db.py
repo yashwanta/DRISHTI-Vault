@@ -11,7 +11,7 @@ from typing import Iterator
 
 from . import config
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -143,6 +143,25 @@ CREATE TABLE IF NOT EXISTS backup_events (
     filename        TEXT,                     -- backup filename (no path secrets)
     actor           TEXT,
     detail          TEXT                      -- metadata only; NEVER a password/key/secret
+);
+
+-- Encrypted notes (schema v4). EVERYTHING sensitive is AES-256-GCM encrypted
+-- with the session DEK: the title, body, and tags are all stored encrypted so
+-- that even a user with DB-file access cannot read note contents without the
+-- master password. Color/pinned/timestamps stay plaintext for sorting & display.
+-- Search is therefore CLIENT-SIDE: the API returns decrypted notes only inside
+-- the reveal window, and the browser does the matching.
+CREATE TABLE IF NOT EXISTS notes (
+    id              INTEGER PRIMARY KEY,
+    title_enc       TEXT NOT NULL,            -- encrypted (sensitive)
+    body_enc        TEXT NOT NULL,            -- encrypted (sensitive)
+    tags_enc        TEXT,                     -- encrypted JSON array (sensitive)
+    color           TEXT NOT NULL DEFAULT '', -- UI palette key, non-secret
+    pinned          INTEGER NOT NULL DEFAULT 0,
+    owner_id        INTEGER NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
 """
 

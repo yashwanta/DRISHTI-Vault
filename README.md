@@ -29,10 +29,10 @@ powershell -ExecutionPolicy Bypass -File scripts\podman-drishtivault.ps1
 
 See **[docs/CONTAINER.md](docs/CONTAINER.md)** for details.
 
-### Option B — Bare metal (local Python + Node)
+### Option B — Bare metal (local Go + Node)
 
 ```powershell
-# 1. Install (checks Python/Node, installs deps, builds frontend, inits DB)
+# 1. Install (checks Go/Node, builds backend + frontend, initializes DB)
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 
 # 2. Start (serves API + SPA on one port) and open browser
@@ -96,7 +96,7 @@ recovery warning.
 
 | Layer    | Technology                                  |
 |----------|---------------------------------------------|
-| Backend  | Python · FastAPI · Uvicorn (127.0.0.1:7788) |
+| Backend  | Go · standard `net/http` (127.0.0.1:7788) |
 | Frontend | React + TypeScript + Vite                   |
 | Database | local SQLite (data/drishtivault.db)             |
 | Hash/KDF | Argon2id (argon2-cffi)                      |
@@ -107,7 +107,8 @@ recovery warning.
 ```
 DRISHTI-Vault/
   apps/
-    api/      FastAPI backend (app/ ...)
+    api-go/   Go backend (cmd/server + internal packages)
+    api/      Transitional Python fallback
     web/      React + TS frontend (src/ ...)
   data/       SQLite database (gitignored)
   backups/encrypted/   encrypted backup files (gitignored)
@@ -121,8 +122,8 @@ DRISHTI-Vault/
 
 ```powershell
 # Terminal 1 — backend
-cd apps\api
-python -m uvicorn app.main:app --host 127.0.0.1 --port 7788 --reload
+cd apps\api-go
+go run ./cmd/server
 
 # Terminal 2 — frontend dev server (proxies /api -> 7788)
 cd apps\web
@@ -130,4 +131,4 @@ npm run dev    # http://127.0.0.1:5174
 ```
 
 Build the SPA for production serving: `cd apps\web && npm run build`
-(then the FastAPI server serves `apps\web\dist` at `/`).
+(then the Go server serves `apps\web\dist` at `/`).

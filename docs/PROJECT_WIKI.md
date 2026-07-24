@@ -30,12 +30,12 @@ and becomes the central, encrypted store for:
 |-------------------|----------------------------------------------------|
 | Project path      | `C:\DRISHTI\DRISHTI-Vault`                         |
 | Bind address      | `127.0.0.1:7788`                                  |
-| Backend           | Python · FastAPI · Uvicorn (`apps/api`)            |
+| Backend           | Go · `net/http` (`apps/api-go`)                    |
 | Frontend          | React + TypeScript + Vite (`apps/web`)             |
 | Database          | local SQLite (`data/drishtivault.db`)              |
-| Hash / KDF        | Argon2id (`argon2-cffi`)                           |
-| Cipher            | AES-256-GCM (`cryptography`)                       |
-| Excel dep         | `openpyxl==3.1.5`                                  |
+| Hash / KDF        | Argon2id (`golang.org/x/crypto`)                   |
+| Cipher            | AES-256-GCM (Go standard library)                  |
+| Excel dep         | `excelize/v2`                                      |
 | Super Admin       | `Yash` (reserved identity, hidden from others)     |
 | Smoke tests       | `apps/api/tests/test_smoke.py` — **102/102 pass**  |
 
@@ -57,38 +57,20 @@ See [INSTALL.md](INSTALL.md), [CONTAINER.md](CONTAINER.md), [SECURITY.md](SECURI
 ```
 DRISHTI-Vault/
   apps/
-    api/                  FastAPI backend
-      app/
-        main.py           app factory + router registration
-        crypto.py         Argon2id verifier, AES-256-GCM field encrypt/decrypt
-        rbac.py           role + site-scope enforcement
-        sessions.py       session + reveal-window state
-        audit.py          immutable audit logging (never secret values)
-        db.py             SQLite connection / schema init
-        deps.py           FastAPI dependencies (get_session, require_reveal, client_ip)
-        config.py         bind host/port, TTLs, paths
-        routes/           one file per resource area
-          auth.py  users.py  sites.py  assets.py  credentials.py
-          network.py  changelog.py  dashboard.py  audit.py
-          csv.py          CSV template + bulk import
-          import_excel.py Excel workbook import
-          backup.py       encrypted export/restore
-          settings.py     local config read-out
-        services/
-          csv_io.py       CSV schema, parse, validate, template generation
-          excel_import.py workbook parse → structured preview (no secrets)
-          backup_svc.py   encrypted backup/restore logic
-        tests/test_smoke.py
-      requirements.txt
-    api-go/               ⚠ IN-PROGRESS Go port of the API (crypto module first)
-      internal/crypto/    crypto.go, master.go, crypto_test.go
+    api-go/               production Go API
+      cmd/server/         executable entry point
+      internal/server/    HTTP routes, RBAC, imports, backup/restore, SPA
+      internal/database/  SQLite schema, seeding, audit
+      internal/sessions/  in-memory DEK sessions and reveal window
+      internal/crypto/    compatible Argon2id + AES-256-GCM implementation
       go.mod / go.sum
+    api/                  transitional Python fallback
     web/                  React + TS + Vite SPA
       src/
         api.ts            typed API client (fetch wrapper)
         pages/            SettingsPage, CredentialsPage, DashboardPage, ...
         components/       UI primitives + MultiPasswordPrompt
-      dist/               built SPA served by FastAPI in production
+      dist/               built SPA served by Go in production
   data/                   SQLite DB (gitignored)
   backups/encrypted/      encrypted backup files (gitignored)
   import/                 source workbooks (AMR_Proxmox_VM_Tracker.xlsx)
@@ -239,42 +221,40 @@ GET  /api/backup/last  ·  /api/backup/history
 # Ops
 GET /api/dashboard  ·  GET /api/audit  ·  GET /api/settings
 ```
-Router registration lives in `apps/api/app/main.py`.
+Route registration lives in `apps/api-go/internal/server/server.go`.
 
 ---
 
 ## 9. Development workflow
 
 ```powershell
-# Terminal 1 — backend (hot reload)
-cd apps\api
-python -m uvicorn app.main:app --host 127.0.0.1 --port 7788 --reload
+# Terminal 1 — backend
+cd apps\api-go
+go run ./cmd/server
 
 # Terminal 2 — frontend dev server (proxies /api -> 7788)
 cd apps\web
 npm run dev    # http://127.0.0.1:5174
 ```
 
-Production SPA build (served by FastAPI at `/`):
+Production SPA build (served by Go at `/`):
 ```powershell
 cd apps\web && npm run build     # output: apps/web/dist
 ```
 
 Run smoke tests:
 ```powershell
-cd apps\api
-python -m pytest tests/test_smoke.py -q
+cd apps\api-go
+go test ./...
 ```
 
 ---
 
 ## 10. In-progress workstreams
 
-- **Go API port** (`apps/api-go/`) — porting the Python FastAPI backend to Go. Started
-  with the crypto module (`internal/crypto/`: `crypto.go`, `master.go`,
-  `crypto_test.go`). Not yet wired into routing or the container. When resuming:
-  port crypto unit tests to parity, then stand up handlers/middleware/db in Go and
-  decide whether Go replaces or runs alongside the Python API.
+- **Go API hardening** (`apps/api-go/`) — the Go backend is now the primary
+  launcher and container runtime. Keep extending endpoint and encrypted-backup
+  compatibility tests before retiring the transitional Python fallback.
 - **Import UX** — both Excel and CSV upload controls exist on Settings. Potential
   follow-ups: per-row error detail in CSV commit modal, `xlsx` template generation to
   match CSV, drag-and-drop drop-zones, progress for large files.

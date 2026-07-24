@@ -43,6 +43,10 @@ env/
 
 # Node / Vite / TS
 node_modules/
+.gocache/
+.gomodcache/
+drishtivault.exe
+.compat-test/
 dist/
 build/
 *.tsbuildinfo
