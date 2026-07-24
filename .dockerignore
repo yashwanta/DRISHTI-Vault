@@ -8,6 +8,9 @@
 **/.pytest_cache
 **/.venv
 **/venv
+**/.gocache
+**/.gomodcache
+**/drishtivault.exe
 data/*
 !data/.gitkeep
 backups/encrypted/*
