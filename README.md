@@ -12,6 +12,9 @@ notes.
 
 > 📖 **[docs/PROJECT_WIKI.md](docs/PROJECT_WIKI.md)** — full project reference:
 > architecture, security model, data model, import flows (Excel + CSV), RBAC, and dev workflow.
+>
+> 🔐 **[docs/CREDENTIALS_PAGE_KB.md](docs/CREDENTIALS_PAGE_KB.md)** — detailed credentials-page
+> UX, reveal workflow, clipboard safeguards, maintenance guidance, and validation checklist.
 
 ---
 
@@ -59,8 +62,10 @@ controls who decrypts what) — see [docs/SECURITY.md](docs/SECURITY.md).
 - **Dashboard** — total sites, assets, credentials, rotation-due, recent changes & audit
 - **Sites / Plants** — Springfield, Hopkinsville seeded
 - **VM & Server Inventory** — Proxmox hosts/VMs, RDS cores, switches, APs, etc.
-- **Credentials Vault** — encrypted usernames/passwords/URLs/notes, masked by default,
-  reveal only after master re-auth, copy-to-clipboard with 30s auto-clear, rotate
+- **Credentials Vault** — site-grouped sortable table and card views, responsive mobile
+  cards, credential-type icons, rotation status badges, secure password generation,
+  reveal-gated audited copy, and clipboard auto-clear. See the
+  **[Credentials Page Knowledge Base](docs/CREDENTIALS_PAGE_KB.md)**.
 - **Network Reference** — VLANs / subnets / gateways / DNS
 - **Change Log** — tracked changes with approval trail
 - **Audit Log** — immutable record of view/copy/edit/delete/backup/restore events
