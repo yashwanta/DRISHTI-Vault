@@ -244,6 +244,181 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 .view-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 
+/* Encrypted Notes workspace */
+.notes-page { display: grid; gap: 16px; }
+.notes-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.notes-security-line { margin: 6px 0 0; }
+.notes-import-panel {
+  display: grid;
+  grid-template-columns: minmax(190px, .65fr) minmax(300px, 1.35fr);
+  align-items: center;
+  gap: 18px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.notes-import-copy { display: grid; gap: 5px; }
+.notes-toolbar { display: flex; gap: 10px; }
+.notes-search { flex: 1; min-width: 220px; }
+.notes-tag-filter { width: 190px; }
+.notes-sections { display: grid; gap: 20px; }
+.notes-section-title {
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.note-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  align-items: start;
+  gap: 14px;
+}
+.note-card {
+  display: flex;
+  min-width: 0;
+  min-height: 210px;
+  flex-direction: column;
+  padding: 15px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  transition: border-color .15s, transform .15s;
+}
+.note-card:hover { border-color: rgba(88,166,255,.55); transform: translateY(-1px); }
+.note-color-yellow { background: linear-gradient(rgba(210,153,34,.13), rgba(210,153,34,.13)), var(--panel); }
+.note-color-green { background: linear-gradient(rgba(63,185,80,.12), rgba(63,185,80,.12)), var(--panel); }
+.note-color-blue { background: linear-gradient(rgba(88,166,255,.12), rgba(88,166,255,.12)), var(--panel); }
+.note-color-pink { background: linear-gradient(rgba(219,97,162,.13), rgba(219,97,162,.13)), var(--panel); }
+.note-color-purple { background: linear-gradient(rgba(163,113,247,.14), rgba(163,113,247,.14)), var(--panel); }
+.note-color-gray { background: linear-gradient(rgba(139,148,158,.12), rgba(139,148,158,.12)), var(--panel); }
+.note-card-header { display: flex; align-items: flex-start; gap: 8px; }
+.note-title-button {
+  flex: 1;
+  padding: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  text-align: left;
+}
+.note-title-button:hover,
+.note-title-button:focus-visible { color: var(--accent); outline: none; }
+.note-pin-button {
+  padding: 1px 2px;
+  opacity: .35;
+  background: transparent;
+  border: 0;
+  filter: grayscale(1);
+}
+.note-pin-button:hover,
+.note-pin-button:focus-visible,
+.note-pin-button.is-pinned { opacity: 1; filter: none; outline: none; }
+.note-card-preview {
+  flex: 1;
+  max-height: 112px;
+  margin-top: 9px;
+  overflow: hidden;
+  color: var(--muted);
+  mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
+}
+.note-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.note-tags .pill { font-size: 10px; }
+.note-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 13px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.note-card-actions { display: flex; gap: 5px; }
+.note-editor { display: grid; gap: 12px; }
+.note-editor-title { font-size: 17px; font-weight: 600; }
+.note-editor-toolbar { display: flex; align-items: center; gap: 5px; }
+.note-editor-workspace {
+  display: grid;
+  min-height: 360px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.note-editor-workspace.mode-split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.note-markdown-input {
+  width: 100%;
+  min-height: 360px;
+  padding: 14px;
+  resize: vertical;
+  border: 0;
+  border-radius: 0;
+  font-family: "Cascadia Code", Consolas, monospace;
+  line-height: 1.55;
+}
+.note-preview-pane {
+  min-width: 0;
+  max-height: 54vh;
+  padding: 14px 18px;
+  overflow: auto;
+  background: var(--bg);
+}
+.mode-split .note-preview-pane { border-left: 1px solid var(--border); }
+.note-color-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.note-color-swatch {
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.note-color-swatch.is-selected { border: 2px solid var(--accent); box-shadow: 0 0 0 2px rgba(88,166,255,.16); }
+.note-backlinks { display: grid; gap: 7px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.note-backlinks > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.markdown-preview { color: var(--text); line-height: 1.55; overflow-wrap: anywhere; }
+.markdown-preview > :first-child { margin-top: 0; }
+.markdown-preview > :last-child { margin-bottom: 0; }
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 { margin: 1em 0 .45em; line-height: 1.25; }
+.markdown-preview h1 { font-size: 1.55em; }
+.markdown-preview h2 { font-size: 1.32em; }
+.markdown-preview h3 { font-size: 1.15em; }
+.markdown-preview p { margin: .45em 0; }
+.markdown-preview code { padding: 2px 5px; background: rgba(139,148,158,.14); border-radius: 4px; font-family: "Cascadia Code", Consolas, monospace; }
+.markdown-preview pre { padding: 12px; overflow: auto; background: #090d12; border: 1px solid var(--border); border-radius: 7px; }
+.markdown-preview pre code { padding: 0; background: transparent; }
+.markdown-preview blockquote { margin: 9px 0; padding: 5px 12px; color: var(--muted); border-left: 3px solid var(--accent); }
+.markdown-preview hr { border: 0; border-top: 1px solid var(--border); }
+.markdown-list-item,
+.markdown-task { display: flex; align-items: flex-start; gap: 7px; margin: 3px 0 3px 10px; }
+.markdown-task input { margin-top: 4px; accent-color: var(--accent); }
+.wiki-link { padding: 0; color: var(--accent); background: transparent; border: 0; font: inherit; text-align: left; }
+.wiki-link:hover,
+.wiki-link:focus-visible { text-decoration: underline; outline: none; }
+.markdown-preview.is-compact { font-size: 12px; }
+.markdown-preview.is-compact h1,
+.markdown-preview.is-compact h2,
+.markdown-preview.is-compact h3,
+.markdown-preview.is-compact h4,
+.markdown-preview.is-compact h5,
+.markdown-preview.is-compact h6 { margin: .5em 0 .25em; font-size: 1em; }
+.markdown-preview.is-compact pre { white-space: pre-wrap; }
+
 @media (max-width: 768px) {
   .cred-page-header { align-items: flex-start; flex-direction: column; }
   .cred-toolbar input,
@@ -258,5 +433,13 @@ tr:hover td { background: rgba(255,255,255,0.02); }
   .view-value-actions { align-items: stretch; flex-direction: column; }
   .view-value-actions .btn { text-align: center; }
   .form-grid { grid-template-columns: 1fr; }
+  .notes-page-header { align-items: stretch; flex-direction: column; }
+  .notes-import-panel { grid-template-columns: 1fr; }
+  .notes-toolbar { flex-direction: column; }
+  .notes-tag-filter { width: 100%; }
+  .note-card-grid { grid-template-columns: 1fr; }
+  .note-editor-toolbar .subtle { display: none; }
+  .note-editor-workspace.mode-split { grid-template-columns: 1fr; }
+  .mode-split .note-preview-pane { border-top: 1px solid var(--border); border-left: 0; }
 }
 `;

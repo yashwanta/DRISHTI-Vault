@@ -120,6 +120,32 @@ export interface Dashboard {
   recent_audit: AuditRow[];
 }
 
+export interface Note {
+  id: number;
+  title: string;
+  body: string;
+  tags: string[];
+  color: string;
+  pinned: boolean;
+  owner_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteInput {
+  title: string;
+  body: string;
+  tags: string[];
+  color: string;
+  pinned?: boolean;
+}
+
+export interface NoteImportResult {
+  id: number;
+  title: string;
+  source_type: "markdown" | "docx";
+}
+
 export interface ImportPreview {
   sites: any[];
   assets: any[];

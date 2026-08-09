@@ -1,7 +1,16 @@
-// API client. All requests are same-origin in production (FastAPI serves the SPA).
+import type { Note, NoteImportResult, NoteInput } from "./types";
+
+// API client. All requests are same-origin in production (the Go server serves the SPA).
 // No secrets are ever persisted to localStorage/sessionStorage.
 
 const BASE = "";
+
+export class ApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 async function req<T>(
   path: string,
@@ -39,13 +48,11 @@ async function req<T>(
     }
     if (!res.ok) {
       const detail = (data && data.detail) || `HTTP ${res.status}`;
-      const err = new Error(detail);
-      (err as any).status = res.status;
-      throw err;
+      throw new ApiError(res.status, detail);
     }
     return data as T;
-  } catch (e: any) {
-    if (e?.name === "AbortError") {
+  } catch (e: unknown) {
+    if (e instanceof Error && e.name === "AbortError") {
       throw new Error("Request timed out. Refresh the page and try again.");
     }
     throw e;
@@ -212,15 +219,20 @@ export const api = {
   // GET /notes returns decrypted content for an authenticated session (no
   // master-password re-auth / reveal window - unlike credentials). Search is
   // performed client-side on the result. See routes/notes.py for the trade-off.
-  listNotes: () => req<{ items: any[] }>("/api/notes"),
-  createNote: (body: any) =>
+  listNotes: () => req<{ items: Note[] }>("/api/notes"),
+  createNote: (body: NoteInput) =>
     req<{ id: number }>("/api/notes", { method: "POST", body: JSON.stringify(body) }),
-  updateNote: (id: number, body: any) =>
+  updateNote: (id: number, body: NoteInput) =>
     req(`/api/notes/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteNote: (id: number) =>
     req(`/api/notes/${id}`, { method: "DELETE" }),
   toggleNotePin: (id: number) =>
     req<{ id: number; pinned: boolean }>(`/api/notes/${id}/pin`, { method: "POST" }),
+  importNote: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return req<NoteImportResult>("/api/notes/import", { method: "POST", body: fd }, 30000);
+  },
 };
 
 // Download a CSV template (blob fetch; generic req() returns JSON).
@@ -261,4 +273,3 @@ export async function downloadBackup(
     createdAt: res.headers.get("X-Backup-Created-At") || "",
   };
 }
-

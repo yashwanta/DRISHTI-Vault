@@ -48,7 +48,7 @@ powershell -ExecutionPolicy Bypass -File scripts\podman-drishtivault.ps1
 Open http://127.0.0.1:7788 and create the Super Admin (`Yash`) master password.
 
 See [INSTALL.md](INSTALL.md), [CONTAINER.md](CONTAINER.md), [SECURITY.md](SECURITY.md),
-[RECOVERY.md](RECOVERY.md) for the deep dives.
+[RECOVERY.md](RECOVERY.md), and [NOTES_WORKSPACE_KB.md](NOTES_WORKSPACE_KB.md) for the deep dives.
 
 ---
 
