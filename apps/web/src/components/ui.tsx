@@ -84,10 +84,15 @@ export function Empty({ children }: { children: React.ReactNode }) {
 
 export function useToast() {
   const [msg, setMsg] = React.useState<string | null>(null);
-  const show = (m: string) => {
+  const timerRef = React.useRef<number | undefined>();
+
+  const show = React.useCallback((m: string) => {
+    window.clearTimeout(timerRef.current);
     setMsg(m);
-    setTimeout(() => setMsg(null), 2500);
-  };
+    timerRef.current = window.setTimeout(() => setMsg(null), 2500);
+  }, []);
+
+  React.useEffect(() => () => window.clearTimeout(timerRef.current), []);
   const node = msg ? (
     <div
       style={{

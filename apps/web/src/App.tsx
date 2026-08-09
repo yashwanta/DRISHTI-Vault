@@ -1,6 +1,6 @@
 import React from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import { Layout } from "./components/Layout";
 import { AuthGate } from "./pages/Auth";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -52,8 +52,14 @@ export function App() {
         setRevealOpen(me.reveal_open);
         setRole(me.role || "super_admin");
         setMustChangePw(!!me.must_change_pw);
-      } catch {
-        setAuthed(false);
+      } catch (error: unknown) {
+        // Only a confirmed expired/invalid session should return the user to
+        // the login screen. A temporary request failure must not destroy an
+        // otherwise valid UI session.
+        if (error instanceof ApiError && error.status === 401) {
+          setAuthed(false);
+          setRevealOpen(false);
+        }
       }
     }, 5000);
     return () => window.clearInterval(t);

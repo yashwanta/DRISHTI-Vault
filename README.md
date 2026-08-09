@@ -15,6 +15,9 @@ notes.
 >
 > 🔐 **[docs/CREDENTIALS_PAGE_KB.md](docs/CREDENTIALS_PAGE_KB.md)** — detailed credentials-page
 > UX, reveal workflow, clipboard safeguards, maintenance guidance, and validation checklist.
+>
+> 📝 **[docs/NOTES_WORKSPACE_KB.md](docs/NOTES_WORKSPACE_KB.md)** — encrypted Notes workspace,
+> Markdown/DOCX import, wiki links, backlinks, security boundaries, and troubleshooting.
 
 ---
 
@@ -66,6 +69,9 @@ controls who decrypts what) — see [docs/SECURITY.md](docs/SECURITY.md).
   cards, credential-type icons, rotation status badges, secure password generation,
   reveal-gated audited copy, and clipboard auto-clear. See the
   **[Credentials Page Knowledge Base](docs/CREDENTIALS_PAGE_KB.md)**.
+- **Encrypted Notes** — Markdown edit/preview/split modes, `[[wiki links]]`, linked
+  mentions, tags, pinning, local search, and secure `.md`/`.docx` import. See the
+  **[Notes Workspace Knowledge Base](docs/NOTES_WORKSPACE_KB.md)**.
 - **Network Reference** — VLANs / subnets / gateways / DNS
 - **Change Log** — tracked changes with approval trail
 - **Audit Log** — immutable record of view/copy/edit/delete/backup/restore events
