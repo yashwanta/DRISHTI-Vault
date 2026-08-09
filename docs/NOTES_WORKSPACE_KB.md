@@ -1,12 +1,12 @@
 # Encrypted Notes Workspace Knowledge Base
 
-DRISHTI-Vault Notes is an Obsidian-inspired workspace inside the localhost-only
-vault. It combines encrypted note storage with Markdown editing, preview, tags,
-wiki links, backlinks, pinning, search, and document import.
+DRISHTI-Vault Notes is a linked Markdown notes workspace inside the
+localhost-only vault. It combines encrypted note storage with Markdown editing,
+preview, tags, wiki links, backlinks, pinning, search, and document import.
 
-> This is not a replacement for the full Obsidian desktop application or its
-> plugin ecosystem. It implements the most useful linked-note workflows while
-> keeping the content inside DRISHTI-Vault's encrypted SQLite database.
+> This workspace intentionally provides a focused set of linked-note features.
+> It keeps the content inside DRISHTI-Vault's encrypted SQLite database and does
+> not load third-party note plugins.
 
 ## User workflow
 
@@ -21,7 +21,7 @@ wiki links, backlinks, pinning, search, and document import.
 The page keeps decrypted note content only in the current React session. It does
 not use `localStorage` or `sessionStorage`.
 
-### Link notes like Obsidian
+### Link notes with wiki links
 
 Use `[[Note title]]` in a note body. In Preview or Split mode, the link is
 clickable:
