@@ -47,8 +47,11 @@ func TestParseDOCXUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseNoteUpload: %v", err)
 	}
-	if note.Title != "recovery" || note.Kind != "docx" {
+	if note.Title != "Recovery Guide" || note.Kind != "markdown" {
 		t.Fatalf("unexpected metadata: %#v", note)
+	}
+	if note.Tags == nil {
+		t.Fatal("DOCX import tags must be an empty array, not nil")
 	}
 	want := "# Recovery Guide\n\n## Procedure\n\nRestart the service."
 	if note.Body != want {

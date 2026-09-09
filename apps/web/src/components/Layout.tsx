@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { WarningBanner } from "./WarningBanner";
 import { api } from "../api";
 
@@ -40,8 +40,10 @@ export function Layout({
   onPwChanged: () => void;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [idleMin, setIdleMin] = React.useState(15);
   const isAdmin = role === "super_admin" || role === "global_admin";
+  const isFullWidthPage = location.pathname === "/notes";
 
   React.useEffect(() => {
     api.bootstrap().then((b) => setIdleMin(b.idle_lock_minutes || 15));
@@ -122,7 +124,7 @@ export function Layout({
       </aside>
 
       <main style={{ flex: 1, padding: 20, overflow: "auto" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+        <div style={isFullWidthPage ? { width: "100%" } : { maxWidth: 1200, margin: "0 auto" }}>
           <WarningBanner />
           <div style={{ height: 16 }} />
           {mustChangePw && (

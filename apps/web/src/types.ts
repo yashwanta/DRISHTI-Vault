@@ -143,7 +143,7 @@ export interface NoteInput {
 export interface NoteImportResult {
   id: number;
   title: string;
-  source_type: "markdown" | "docx";
+  source_type: "markdown";
 }
 
 export interface ImportPreview {
