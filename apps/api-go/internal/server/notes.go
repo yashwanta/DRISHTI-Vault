@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"path"
@@ -121,9 +122,10 @@ func parseNoteUpload(filename string, data []byte) (importedNote, error) {
 	case ".docx":
 		body, err := docxToMarkdown(data)
 		if err != nil {
-			return importedNote{}, errors.New("The DOCX file is invalid or its text cannot be read.")
+			return importedNote{}, fmt.Errorf("Could not read this DOCX file: %s", err.Error())
 		}
-		return importedNote{Title: fallback, Body: body, Tags: []string{"docx"}, Kind: "docx"}, nil
+		title, body, tags := parseMarkdownMetadata(body, fallback)
+		return importedNote{Title: title, Body: body, Tags: tags, Kind: "markdown"}, nil
 	case ".doc":
 		return importedNote{}, errors.New("Legacy .doc files are not supported. Save the document as .docx and try again.")
 	default:
@@ -182,6 +184,19 @@ func parseMarkdownMetadata(content, fallback string) (string, string, []string) 
 	return title, body, uniqueTags(tags)
 }
 
+func markdownHeadingTitle(body, fallback string) string {
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "# ") {
+			title := strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))
+			if title != "" {
+				return title
+			}
+		}
+	}
+	return fallback
+}
+
 func trimYAMLValue(value string) string {
 	return strings.Trim(strings.TrimSpace(value), "\"'")
 }
@@ -215,94 +230,350 @@ func uniqueTags(tags []string) []string {
 	return out
 }
 
-func docxToMarkdown(data []byte) (string, error) {
-	reader, e := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if e != nil {
-		return "", e
+// ── DOCX → Markdown ──────────────────────────────────────────────────────────
+//
+// A DOCX file is a ZIP archive. The main content lives in word/document.xml.
+// We also extract text from word/header*.xml, word/footer*.xml, and
+// word/footnotes.xml so documents with content only in those parts still
+// import cleanly.
+//
+// The XML parser tracks paragraph style (heading level, list type) and builds
+// a Markdown string. Bold and italic runs are preserved. Tables are converted
+// to GFM pipe tables. Numbered and bulleted lists use Markdown syntax.
+
+type docxParser struct {
+	paragraphs []string
+
+	// current paragraph state
+	paraText strings.Builder
+	style    string // e.g. "Heading1", "ListParagraph"
+	numID    string // numbering ID for lists
+	ilvl     int    // list indent level
+	bold     bool
+	italic   bool
+	inText   bool
+	runText  strings.Builder
+
+	// table state
+	inTable     bool
+	tableRows   [][]string
+	currentRow  []string
+	currentCell strings.Builder
+	headerDone  bool
+}
+
+func (p *docxParser) flushRun() {
+	t := p.runText.String()
+	p.runText.Reset()
+	if t == "" {
+		return
 	}
-	var document io.ReadCloser
-	for _, file := range reader.File {
-		if file.Name == "word/document.xml" {
-			document, e = file.Open()
-			break
+	if p.bold && p.italic {
+		p.paraText.WriteString("***" + t + "***")
+	} else if p.bold {
+		p.paraText.WriteString("**" + t + "**")
+	} else if p.italic {
+		p.paraText.WriteString("_" + t + "_")
+	} else {
+		p.paraText.WriteString(t)
+	}
+}
+
+func (p *docxParser) flushParagraph() {
+	text := strings.TrimSpace(p.paraText.String())
+	p.paraText.Reset()
+	p.bold = false
+	p.italic = false
+
+	if p.inTable {
+		// paragraphs inside a table cell just accumulate
+		if text != "" {
+			if p.currentCell.Len() > 0 {
+				p.currentCell.WriteString(" ")
+			}
+			p.currentCell.WriteString(text)
+		}
+		return
+	}
+	if text == "" {
+		return
+	}
+	p.paragraphs = append(p.paragraphs, p.formatParagraph(text))
+}
+
+func (p *docxParser) formatParagraph(text string) string {
+	norm := strings.ToLower(strings.ReplaceAll(p.style, " ", ""))
+
+	// Headings
+	if norm == "title" {
+		return "# " + text
+	}
+	if norm == "subtitle" {
+		return "## " + text
+	}
+	if strings.HasPrefix(norm, "heading") {
+		lvlStr := strings.TrimPrefix(norm, "heading")
+		if level, err := strconv.Atoi(lvlStr); err == nil && level >= 1 && level <= 6 {
+			return strings.Repeat("#", level) + " " + text
 		}
 	}
-	if e != nil || document == nil {
-		return "", errors.New("word/document.xml is missing")
-	}
-	defer document.Close()
 
-	decoder := xml.NewDecoder(io.LimitReader(document, maxImportedBody+1))
-	paragraphs := []string{}
-	var paragraph strings.Builder
-	style := ""
-	inText := false
+	// Lists
+	if p.numID != "" || norm == "listparagraph" || strings.Contains(norm, "list") {
+		indent := strings.Repeat("  ", p.ilvl)
+		return indent + "- " + text
+	}
+
+	return text
+}
+
+func (p *docxParser) flushTable() {
+	if len(p.tableRows) == 0 {
+		p.inTable = false
+		p.tableRows = nil
+		p.headerDone = false
+		return
+	}
+
+	// determine column count
+	cols := 0
+	for _, row := range p.tableRows {
+		if len(row) > cols {
+			cols = len(row)
+		}
+	}
+	if cols == 0 {
+		p.inTable = false
+		p.tableRows = nil
+		p.headerDone = false
+		return
+	}
+
+	var sb strings.Builder
+	for i, row := range p.tableRows {
+		// pad row to cols
+		for len(row) < cols {
+			row = append(row, "")
+		}
+		sb.WriteString("| " + strings.Join(row, " | ") + " |")
+		if i == 0 {
+			sb.WriteString("\n|" + strings.Repeat(" --- |", cols))
+		}
+		if i < len(p.tableRows)-1 {
+			sb.WriteString("\n")
+		}
+	}
+	p.paragraphs = append(p.paragraphs, sb.String())
+
+	p.inTable = false
+	p.tableRows = nil
+	p.headerDone = false
+}
+
+func parseDocxXML(rc io.ReadCloser, p *docxParser) error {
+	defer rc.Close()
+	dec := xml.NewDecoder(io.LimitReader(rc, maxImportedBody+1))
+	dec.CharsetReader = func(charset string, input io.Reader) (io.Reader, error) {
+		// Accept UTF-8 and ASCII; reject others gracefully
+		cs := strings.ToLower(charset)
+		if cs == "utf-8" || cs == "us-ascii" || cs == "ascii" {
+			return input, nil
+		}
+		// Fall back to reading as-is for other charsets (e.g. windows-1252)
+		return input, nil
+	}
+
 	for {
-		token, err := decoder.Token()
+		tok, err := dec.Token()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return "", err
+			// Non-fatal: stop parsing this part but don't fail the whole import
+			break
 		}
-		switch t := token.(type) {
+
+		switch t := tok.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
+			// ── Table ───────────────────────────────────────────────
+			case "tbl":
+				p.inTable = true
+				p.tableRows = nil
+				p.headerDone = false
+			case "tr":
+				p.currentRow = nil
+			case "tc":
+				p.currentCell.Reset()
+
+			// ── Paragraph ───────────────────────────────────────────
 			case "p":
-				paragraph.Reset()
-				style = ""
+				p.paraText.Reset()
+				p.style = ""
+				p.numID = ""
+				p.ilvl = 0
+				p.bold = false
+				p.italic = false
+
+			// ── Paragraph properties ─────────────────────────────────
 			case "pStyle":
 				for _, attr := range t.Attr {
 					if attr.Name.Local == "val" {
-						style = attr.Value
+						p.style = attr.Value
 					}
 				}
+			case "numId":
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "val" {
+						p.numID = attr.Value
+					}
+				}
+			case "ilvl":
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "val" {
+						p.ilvl, _ = strconv.Atoi(attr.Value)
+					}
+				}
+
+			// ── Run properties ───────────────────────────────────────
+			case "b":
+				// <w:b/> without val, or val != "0" → bold on
+				val := ""
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "val" {
+						val = attr.Value
+					}
+				}
+				if val != "0" && val != "false" {
+					p.bold = true
+				}
+			case "i":
+				val := ""
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "val" {
+						val = attr.Value
+					}
+				}
+				if val != "0" && val != "false" {
+					p.italic = true
+				}
+			case "bCs":
+				p.bold = true
+			case "iCs":
+				p.italic = true
+
+			// ── Text content ─────────────────────────────────────────
 			case "t":
-				inText = true
+				p.inText = true
 			case "tab":
-				paragraph.WriteByte('\t')
+				p.paraText.WriteByte('\t')
 			case "br":
-				paragraph.WriteByte('\n')
+				// soft line break inside paragraph
+				p.flushRun()
+				p.paraText.WriteByte('\n')
+			case "cr":
+				p.flushRun()
+				p.paraText.WriteByte('\n')
 			}
+
 		case xml.CharData:
-			if inText {
-				paragraph.Write([]byte(t))
+			if p.inText {
+				p.runText.Write([]byte(t))
 			}
+
 		case xml.EndElement:
 			switch t.Name.Local {
 			case "t":
-				inText = false
+				p.inText = false
+				p.flushRun()
+
+			case "r":
+				// run ends — reset run-level formatting
+				p.bold = false
+				p.italic = false
+
 			case "p":
-				text := strings.TrimSpace(paragraph.String())
-				if text != "" {
-					paragraphs = append(paragraphs, formatDOCXParagraph(style, text))
+				p.flushParagraph()
+
+			case "tc":
+				// table cell ends
+				cellText := strings.TrimSpace(p.currentCell.String())
+				p.currentRow = append(p.currentRow, cellText)
+				p.currentCell.Reset()
+
+			case "tr":
+				if len(p.currentRow) > 0 {
+					p.tableRows = append(p.tableRows, p.currentRow)
 				}
+				p.currentRow = nil
+
+			case "tbl":
+				p.flushTable()
 			}
 		}
 	}
-	body := strings.TrimSpace(strings.Join(paragraphs, "\n\n"))
+	return nil
+}
+
+func docxToMarkdown(data []byte) (string, error) {
+	reader, e := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if e != nil {
+		return "", errors.New("not a valid DOCX/ZIP file")
+	}
+
+	// Parts to extract, in priority order
+	wantedParts := []string{
+		"word/document.xml",
+		"word/footnotes.xml",
+		"word/endnotes.xml",
+	}
+	// Also collect header/footer files dynamically
+	for _, f := range reader.File {
+		name := f.Name
+		if (strings.HasPrefix(name, "word/header") || strings.HasPrefix(name, "word/footer")) &&
+			strings.HasSuffix(name, ".xml") {
+			wantedParts = append(wantedParts, name)
+		}
+	}
+
+	p := &docxParser{}
+	found := false
+
+	for _, wantName := range wantedParts {
+		for _, zf := range reader.File {
+			if zf.Name != wantName {
+				continue
+			}
+			rc, err := zf.Open()
+			if err != nil {
+				continue
+			}
+			found = true
+			_ = parseDocxXML(rc, p) // errors are non-fatal; we keep whatever we got
+			break
+		}
+	}
+
+	if !found {
+		return "", errors.New("word/document.xml not found — is this a valid .docx file?")
+	}
+
+	body := strings.TrimSpace(strings.Join(p.paragraphs, "\n\n"))
+
+	// Trim excessive blank lines
+	for strings.Contains(body, "\n\n\n") {
+		body = strings.ReplaceAll(body, "\n\n\n", "\n\n")
+	}
+
 	if body == "" {
-		return "", errors.New("document contains no readable text")
+		return "", errors.New("document has no readable text (may contain only images or shapes)")
 	}
 	if len(body) > maxImportedBody {
-		return "", errors.New("document text exceeds limit")
+		body = body[:maxImportedBody]
 	}
 	return body, nil
 }
 
-func formatDOCXParagraph(style, text string) string {
-	normalized := strings.ToLower(strings.ReplaceAll(style, " ", ""))
-	if normalized == "title" {
-		return "# " + text
-	}
-	if strings.HasPrefix(normalized, "heading") {
-		level, e := strconv.Atoi(strings.TrimPrefix(normalized, "heading"))
-		if e == nil && level >= 1 && level <= 6 {
-			return strings.Repeat("#", level) + " " + text
-		}
-	}
-	return text
-}
 func (s *Server) noteOwned(ss *sessions.Session, id int64) (int64, bool) {
 	var owner int64
 	e := s.db.QueryRow("SELECT owner_id FROM notes WHERE id=?", id).Scan(&owner)
@@ -347,9 +618,12 @@ func (s *Server) listNotes(w http.ResponseWriter, _ *http.Request, ss *sessions.
 			internal(w, e)
 			return
 		}
-		var tv []string
+		tv := []string{}
 		if tags != "" {
 			_ = json.Unmarshal([]byte(tags), &tv)
+		}
+		if tv == nil {
+			tv = []string{}
 		}
 		items = append(items, map[string]any{"id": id, "title": title, "body": body, "tags": tv, "color": color, "pinned": pinned != 0, "owner_id": owner, "created_at": created, "updated_at": updated})
 	}
@@ -375,7 +649,11 @@ func noteFields(ss *sessions.Session, b map[string]any) (string, string, string,
 	if e != nil {
 		return "", "", "", "", false, e
 	}
-	raw, _ := json.Marshal(b["tags"])
+	tagValue := b["tags"]
+	if tagValue == nil {
+		tagValue = []string{}
+	}
+	raw, _ := json.Marshal(tagValue)
 	tags, e := vcrypto.EncryptField(ss.DEK, string(raw))
 	return title, body, tags, color, b["pinned"] == true, e
 }

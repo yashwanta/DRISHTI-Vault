@@ -10,19 +10,24 @@ function humanSize(bytes: number): string {
 /**
  * Drag-and-drop + click-to-pick file selector.
  *
- * Shows the chosen file's name + size, a processing hint while busy, and rejects
- * files that don't match `accept`. Mirrors the look of the existing `.card` /
- * `.btn` primitives so it fits the rest of the UI.
+ * Single-file mode (default): pass `onPick`.
+ * Multi-file mode: pass `multiple` + `onPickMultiple`.
  */
 export function DropZone({
   accept,
   onPick,
+  onPickMultiple,
+  multiple = false,
   busy = false,
   hint,
   selected,
 }: {
   accept: string;
-  onPick: (file: File | undefined) => void;
+  /** Called in single-file mode with the chosen file. */
+  onPick?: (file: File | undefined) => void;
+  /** Called in multi-file mode with all valid chosen files. */
+  onPickMultiple?: (files: File[]) => void;
+  multiple?: boolean;
   busy?: boolean;
   hint?: string;
   /** Optional label for the file currently queued (e.g. while previewing). */
@@ -41,26 +46,37 @@ export function DropZone({
     [accept]
   );
 
-  const validate = (file: File | null | undefined): File | undefined => {
-    if (!file) return undefined;
-    if (allowed.length) {
-      const name = file.name.toLowerCase();
-      const ok = allowed.some((ext) =>
-        ext.startsWith(".") ? name.endsWith(ext) : file.type === ext
-      );
-      if (!ok) {
-        setError(`Unsupported file. Use: ${accept}`);
-        return undefined;
-      }
-    }
-    setError(null);
-    return file;
+  const validateOne = (file: File): boolean => {
+    if (!allowed.length) return true;
+    const name = file.name.toLowerCase();
+    return allowed.some((ext) =>
+      ext.startsWith(".") ? name.endsWith(ext) : file.type === ext
+    );
   };
 
   const handleFiles = (files: FileList | null | undefined) => {
-    const f = files && files[0];
-    const valid = validate(f);
-    if (valid) onPick(valid);
+    if (!files || files.length === 0) return;
+
+    if (multiple && onPickMultiple) {
+      const valid = Array.from(files).filter(validateOne);
+      const rejected = files.length - valid.length;
+      if (rejected > 0) {
+        setError(`${rejected} file(s) skipped — use: ${accept}`);
+      } else {
+        setError(null);
+      }
+      if (valid.length > 0) onPickMultiple(valid);
+      return;
+    }
+
+    // single-file mode
+    const f = files[0];
+    if (!validateOne(f)) {
+      setError(`Unsupported file. Use: ${accept}`);
+      return;
+    }
+    setError(null);
+    onPick?.(f);
   };
 
   return (
@@ -90,21 +106,27 @@ export function DropZone({
         }}
       >
         <div className="subtle" style={{ marginBottom: 6 }}>
-          {busy ? "Processing…" : "Drag & drop a file here, or click to browse"}
+          {busy
+            ? "Processing…"
+            : multiple
+            ? "Drag & drop files here, or click to browse"
+            : "Drag & drop a file here, or click to browse"}
         </div>
-        {hint && !busy && <div className="subtle" style={{ fontSize: 12 }}>{hint}</div>}
-        {busy && selected && (
-          <div style={{ fontWeight: 600 }}>{selected}</div>
+        {hint && !busy && (
+          <div className="subtle" style={{ fontSize: 12 }}>
+            {hint}
+          </div>
         )}
+        {busy && selected && <div style={{ fontWeight: 600 }}>{selected}</div>}
         <input
           ref={inputRef}
           type="file"
           accept={accept}
+          multiple={multiple}
           hidden
           disabled={busy}
           onChange={(e) => {
             handleFiles(e.target.files);
-            // allow re-picking the same file later
             e.target.value = "";
           }}
         />

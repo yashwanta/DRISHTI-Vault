@@ -480,11 +480,17 @@ func (s *Server) spa(w http.ResponseWriter, r *http.Request) {
 		if ct := mime.TypeByExtension(filepath.Ext(full)); ct != "" {
 			w.Header().Set("Content-Type", ct)
 		}
+		if p == "index.html" {
+			w.Header().Set("Cache-Control", "no-store")
+		} else if strings.HasPrefix(filepath.ToSlash(p), "assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
 		http.ServeFile(w, r, full)
 		return
 	}
 	idx := filepath.Join(s.cfg.WebDist, "index.html")
 	if _, e := os.Stat(idx); e == nil {
+		w.Header().Set("Cache-Control", "no-store")
 		http.ServeFile(w, r, idx)
 		return
 	}
