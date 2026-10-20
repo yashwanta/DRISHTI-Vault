@@ -1,0 +1,42 @@
+{
+  "collapse-filter": false,
+  "search": "",
+  "showTags": true,
+  "showAttachments": false,
+  "hideUnresolved": false,
+  "showOrphans": true,
+  "collapse-color-groups": false,
+  "colorGroups": [
+    {
+      "query": "tag:#incident",
+      "color": { "a": 1, "rgb": 16711680 }
+    },
+    {
+      "query": "tag:#project",
+      "color": { "a": 1, "rgb": 255165 }
+    },
+    {
+      "query": "tag:#meeting",
+      "color": { "a": 1, "rgb": 3394815 }
+    },
+    {
+      "query": "tag:#security",
+      "color": { "a": 1, "rgb": 16744448 }
+    },
+    {
+      "query": "tag:#reference",
+      "color": { "a": 1, "rgb": 6684672 }
+    }
+  ],
+  "collapse-display": false,
+  "showArrow": true,
+  "textFadeMultiplier": 0,
+  "nodeSizeMultiplier": 1,
+  "lineSizeMultiplier": 1,
+  "collapse-forces": false,
+  "centerStrength": 0.518713248970312,
+  "repelStrength": 10,
+  "linkStrength": 1,
+  "linkDistance": 250,
+  "scale": 1
+}

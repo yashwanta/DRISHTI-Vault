@@ -1,0 +1,15 @@
+{
+  "defaultViewMode": "preview",
+  "foldHeading": true,
+  "foldIndent": true,
+  "promptDelete": false,
+  "trashOption": "local",
+  "alwaysUpdateLinks": true,
+  "newFileLocation": "folder",
+  "newFileFolderPath": "000-Home",
+  "attachmentFolderPath": "_Attachments",
+  "newLinkFormat": "shortest",
+  "useMarkdownLinks": false,
+  "showUnsupportedFiles": false,
+  "spellcheck": true
+}
