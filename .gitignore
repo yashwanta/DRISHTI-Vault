@@ -69,3 +69,8 @@ desktop.ini
 *.tmp
 *.bak
 NUL
+# Added 2026-10-20: local builds, rollbacks, caches, private notes
+.claude/
+.gocache*/
+*.go.[0-9]*
+Notes/600-Converted/**/private/

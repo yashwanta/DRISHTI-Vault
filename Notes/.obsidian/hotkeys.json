@@ -1,0 +1,45 @@
+{
+  "daily-notes:open-daily-note": [
+    {
+      "modifiers": ["Mod", "Shift"],
+      "key": "D"
+    }
+  ],
+  "app:open-vault": [],
+  "command-palette:open": [
+    {
+      "modifiers": ["Mod"],
+      "key": "P"
+    }
+  ],
+  "switcher:open": [
+    {
+      "modifiers": ["Mod"],
+      "key": "O"
+    }
+  ],
+  "graph:open": [
+    {
+      "modifiers": ["Mod"],
+      "key": "G"
+    }
+  ],
+  "editor:toggle-checkbox": [
+    {
+      "modifiers": ["Mod"],
+      "key": "L"
+    }
+  ],
+  "app:go-back": [
+    {
+      "modifiers": ["Mod"],
+      "key": "ArrowLeft"
+    }
+  ],
+  "app:go-forward": [
+    {
+      "modifiers": ["Mod"],
+      "key": "ArrowRight"
+    }
+  ]
+}
